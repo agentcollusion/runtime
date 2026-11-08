@@ -1,0 +1,42 @@
+name: Runtime release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run check:package
+      - run: npm run demo
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run package:release
+      - name: Publish the verified prerelease archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "Runtime $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md release/*.tgz release/SHA256SUMS release/provenance.json
