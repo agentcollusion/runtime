@@ -1,0 +1,51 @@
+{
+  "name": "@agentcollusion/runtime",
+  "version": "0.1.0-beta.1",
+  "description": "Connect independent agents with scoped tasks, durable handoffs and verifiable receipts.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "agentcollusion": "./bin/agentcollusion.mjs"
+  },
+  "exports": {
+    ".": "./src/client.mjs",
+    "./server": "./src/server.mjs",
+    "./evidence": "./src/evidence.mjs",
+    "./worker": "./src/worker.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "examples/",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "package:release": "node scripts/package-release.mjs",
+    "demo": "node examples/demo.mjs"
+  },
+  "homepage": "https://agentcollusion.ai/service/runtime",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentcollusion/runtime.git"
+  },
+  "keywords": [
+    "agents",
+    "multi-agent",
+    "developer-tools",
+    "audit",
+    "permissions"
+  ],
+  "dependencies": {
+    "selfsigned": "5.5.0"
+  }
+}
