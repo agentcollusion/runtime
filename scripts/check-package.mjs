@@ -39,6 +39,7 @@ const expected = [
   'bin/agentcollusion.mjs',
   'examples/demo-agent.mjs',
   'examples/demo.mjs',
+  'examples/vscode/tasks.json',
   'src/client.mjs',
   'src/errors.mjs',
   'src/evidence.mjs',
@@ -46,6 +47,11 @@ const expected = [
   'src/server.mjs',
   'src/store.mjs',
   'src/worker.mjs',
+  'types/client.d.mts',
+  'types/contracts.d.mts',
+  'types/evidence.d.mts',
+  'types/server.d.mts',
+  'types/worker.d.mts',
 ];
 assert.deepEqual(report.files.map((file) => file.path).sort(), expected.sort());
 assert.equal(report.bundled.length, 0);
