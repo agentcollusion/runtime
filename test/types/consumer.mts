@@ -3,12 +3,14 @@ import { ClientError, RuntimeClient, type RuntimeConfig, type TaskInput } from '
 import { createRuntime } from '@agentcollusion/runtime/server';
 import { canonical, createAuditCheckpoint, digest, signedEnvelope, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '@agentcollusion/runtime/evidence';
 import { runWorker } from '@agentcollusion/runtime/worker';
+import { createA2ASendTool } from '@agentcollusion/runtime/a2a';
 
 declare const recipientConfig: RuntimeConfig;
 declare const trustedFingerprint: string;
 declare const fixturePrivateKeyPem: string;
 const recipient = new RuntimeClient(recipientConfig);
 const host = await createRuntime({ port: 0, tools: {
+  'send-review': createA2ASendTool({ endpoint: 'https://example.invalid/rpc' }),
   'check-manifest': { run: ({ input, signal }) => {
     signal.throwIfAborted();
     return { inputType: typeof input };

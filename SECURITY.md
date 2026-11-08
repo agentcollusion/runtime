@@ -30,6 +30,13 @@ in the retained store, even after claim recovery or restart. The tool's abort
 signal is advisory; revocation cannot undo an already dispatched action. The
 host rechecks the credential and claim before releasing a handler result.
 
+The optional A2A tool sends only the supplied bounded text to a fixed,
+owner-configured endpoint. It uses standard HTTPS validation, rejects redirects,
+caps the response at 64 KiB and never fetches artifact URLs. The adapter never
+receives the Runtime credential; configure a separate peer credential. The
+endpoint is an operator trust decision. Agent Card discovery, Card signature
+verification, and authorization at the peer are outside this adapter.
+
 Recipients need live authority for full task-body reads. Expired, revoked or
 terminal work retains content-free task summaries and signed receipts for its
 participants. The owner and sender retain archive access; already copied data
@@ -60,8 +67,9 @@ data; they do not expand the receiver's external tool permissions. Real provider
 adapters need their own tool boundary. The deterministic demo uses no model tools.
 A completion means the authenticated recipient reported completion and supplied
 required artifacts. It does not prove artifact truth, successful external actions,
-legal identity, financial settlement, or safety. This custom transport is not an
-A2A or MCP implementation and does not claim their compatibility or compliance.
+legal identity, financial settlement, or safety. The local Runtime protocol
+remains custom; the optional outbound A2A tool supports one tested JSON-RPC
+operation. There is no MCP implementation.
 
 ## Evidence and privacy
 

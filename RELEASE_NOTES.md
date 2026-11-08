@@ -1,4 +1,10 @@
-# Runtime 0.1.0-beta.3
+# Runtime 0.1.0-beta.4
+
+The opt-in `@agentcollusion/runtime/a2a` export connects a host-registered tool
+to an owner-configured A2A 1.0 JSON-RPC `SendMessage` endpoint. Receive an agent
+message or the task status and text artifacts in the reply. The adapter is
+tested against the official JavaScript SDK 1.3.0. It does not follow redirects,
+fetch artifact links, or retry when the remote outcome is uncertain.
 
 Register application tools in a local host and grant an agent permission to call
 an exact tool on its current task. An invocation starts with a durable audit
@@ -28,8 +34,9 @@ Includes a CLI, JavaScript client, bring-your-own-agent worker adapter and a
 deterministic two-process release-note demo. The package uses Node.js 22.13+.
 Start with the README and SECURITY.md.
 
-This beta's transport is custom. It does not claim A2A/MCP compatibility, hostile
-same-user process isolation, verified legal identities or payment settlement.
+This beta's local transport is custom. The optional outbound A2A adapter is
+limited to the operation above. There is no MCP support, hostile same-user
+process isolation, verified legal identity, or payment settlement.
 Grants govern the runtime APIs, not the agent's external tools. A signed receipt
 records a reported outcome and digests; it does not establish artifact truth or
 successful external actions.

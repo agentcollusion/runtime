@@ -1,6 +1,6 @@
 {
   "name": "@agentcollusion/runtime",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "description": "Connect independent agents with scoped tasks, durable handoffs and verifiable receipts.",
   "type": "module",
   "license": "MIT",
@@ -30,6 +30,10 @@
     "./worker": {
       "types": "./types/worker.d.mts",
       "default": "./src/worker.mjs"
+    },
+    "./a2a": {
+      "types": "./types/a2a.d.mts",
+      "default": "./src/a2a.mjs"
     }
   },
   "files": [
@@ -64,6 +68,7 @@
     "selfsigned": "5.5.0"
   },
   "devDependencies": {
+    "@a2a-js/sdk": "1.3.0",
     "typescript": "5.9.3"
   }
 }

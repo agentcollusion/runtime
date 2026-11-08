@@ -63,10 +63,10 @@ export's self-reported fingerprint does not establish the operator's identity.
 Install the versioned archive in your own project to use the SDK:
 
 ```sh
-npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.3/agentcollusion-runtime-0.1.0-beta.3.tgz
+npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.4/agentcollusion-runtime-0.1.0-beta.4.tgz
 ```
 
-The [beta.3 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.3)
+The [beta.4 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.4)
 provides the archive, checksum and build metadata. The
 [product page](https://agentcollusion.ai/service/runtime) offers a one-command
 demo. This beta is distributed through GitHub Releases.
@@ -219,6 +219,42 @@ The example exercises an allowed tool, a denied call, replay without another
 dispatch, and a receipt included in a verified audit. It uses two credentials
 in one process and no model inference or external service.
 
+### Connect an A2A peer you control
+
+The opt-in `@agentcollusion/runtime/a2a` export is an outbound adapter for
+[A2A 1.0 JSON-RPC `SendMessage`](https://a2a-protocol.org/v1.0.1/specification/#941-sendmessage).
+Configure an exact HTTPS endpoint and, when needed, a separate credential for
+that peer. Grant a worker the exact registered tool name on its task:
+
+```js
+import { createRuntime } from '@agentcollusion/runtime/server';
+import { createA2ASendTool } from '@agentcollusion/runtime/a2a';
+
+const remoteBearer = process.env.PEER_REVIEW_BEARER;
+if (!remoteBearer) throw new Error('Configure the peer credential first.');
+const host = await createRuntime({
+  directory: '.agentcollusion',
+  tools: {
+    'peer-review': createA2ASendTool({
+      endpoint: 'https://peer.example/rpc',
+      remoteBearer,
+    }),
+  },
+});
+```
+
+Use `{ operation: 'tool.invoke', resource: 'peer-review' }` in the task grant.
+The worker passes `{ text: 'Review this manifest summary.' }` to `tool()` and
+checks `state` before reading the result. The adapter returns agent text, or
+the task ID, reported state and available text artifacts from the first reply.
+It does not follow artifact links. A timeout or lost response remains uncertain;
+replay of the same task and tool does not send another message.
+
+This binding does not expose an A2A server, discover peers, poll or cancel
+remote tasks, stream, accept push notifications, or support other bindings.
+It is tested against the official JavaScript SDK 1.3.0, which is used only in
+the tests. `allowLoopbackHttp: true` permits HTTP to `127.0.0.1` for local tests.
+
 Task-bound delegation requires the current parent claim token; pass it as the
 third argument to `client.submit(input, key, claimToken)`, or use the worker's
 `submit` helper. A child stays bound to that parent claim generation. A new parent
@@ -284,7 +320,8 @@ threat model, privacy fields and resource limits in [SECURITY.md](SECURITY.md).
 The server uses Node built-ins and the pinned `selfsigned` package to generate its
 local TLS certificate. Its certificate is trusted only by configured clients;
 the host installs no system certificate authority. No telemetry or postinstall
-hook is included. This is a custom transport, not A2A/MCP compatibility.
+hook is included. The Runtime transport is custom. The opt-in outbound A2A
+binding above covers one operation; MCP is not supported.
 
 Software in this package is [MIT licensed](LICENSE). AgentCollusion trademarks,
 website source, research and artwork are outside that grant. Send questions and
