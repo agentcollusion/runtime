@@ -1,11 +1,12 @@
 // Compile only: this consumer exercises the package's exported type conditions.
 import { ClientError, RuntimeClient, type RuntimeConfig, type TaskInput } from '@agentcollusion/runtime';
 import { createRuntime } from '@agentcollusion/runtime/server';
-import { createAuditCheckpoint, digest, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '@agentcollusion/runtime/evidence';
+import { canonical, createAuditCheckpoint, digest, signedEnvelope, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '@agentcollusion/runtime/evidence';
 import { runWorker } from '@agentcollusion/runtime/worker';
 
 declare const recipientConfig: RuntimeConfig;
 declare const trustedFingerprint: string;
+declare const fixturePrivateKeyPem: string;
 const recipient = new RuntimeClient(recipientConfig);
 const host = await createRuntime({ port: 0 });
 const owner = new RuntimeClient({ url: host.url, ca: host.certificate, token: host.store.identity.token });
@@ -43,6 +44,9 @@ const verified = verifyEvidence(receipt, trustedFingerprint);
 verified.head.sequence.toFixed();
 receipt.payload.task.resultSha256.toLowerCase();
 const audit = await owner.audit();
+canonical(receipt.payload);
+digest(audit.payload);
+signedEnvelope(audit.payload, fixturePrivateKeyPem, audit.publicKey).payload.events.length.toFixed();
 const checkpoint = createAuditCheckpoint(audit, trustedFingerprint);
 verifyAuditExtension(audit, trustedFingerprint, checkpoint).advanced.valueOf();
 verifyReceiptInAudit(receipt, audit, trustedFingerprint, checkpoint).auditHead.hash.toLowerCase();

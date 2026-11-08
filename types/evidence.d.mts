@@ -1,12 +1,13 @@
-import type { AuditCheckpoint, EvidenceEnvelope, JsonValue, VerifiedAuditExtension, VerifiedEvidence, VerifiedReceiptInAudit } from './contracts.mjs';
+import type { AuditCheckpoint, EvidenceEnvelope, EvidencePayload, JsonValue, VerifiedAuditExtension, VerifiedEvidence, VerifiedReceiptInAudit } from './contracts.mjs';
 
 export type { AuditCheckpoint, AuditEvent, AuditPayload, EvidenceEnvelope, EvidenceHead, EvidencePayload, ReceiptPayload, VerifiedAuditExtension, VerifiedEvidence, VerifiedReceiptInAudit } from './contracts.mjs';
 
-export function canonical(value: JsonValue, depth?: number): string;
-export function digest(value: JsonValue): string;
+type CanonicalInput = JsonValue | EvidencePayload;
+export function canonical(value: CanonicalInput, depth?: number): string;
+export function digest(value: CanonicalInput): string;
 /** SHA-256 of the Ed25519 public key's SPKI DER encoding. */
 export function fingerprint(publicKey: string): string;
-export function signedEnvelope<Payload extends JsonValue>(payload: Payload, privateKey: string, publicKey: string): EvidenceEnvelope<Payload>;
+export function signedEnvelope<Payload extends CanonicalInput>(payload: Payload, privateKey: string, publicKey: string): EvidenceEnvelope<Payload>;
 /** Verify untrusted evidence against a fingerprint obtained independently of it. */
 export function verifyEvidence(envelope: unknown, trustedFingerprint: string): VerifiedEvidence;
 /** Derive a checkpoint from verified audit evidence and retain it under the verifier's control. */

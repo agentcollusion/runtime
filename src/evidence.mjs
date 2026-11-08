@@ -3,6 +3,8 @@ import { createHash, createPublicKey, sign, verify } from 'node:crypto';
 const GENESIS_HASH = '0'.repeat(64);
 const CHECKPOINT_FORMAT = 'agentcollusion-audit-checkpoint/v1';
 const isSha256 = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const isRuntimeId = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+const projectHead = ({ sequence, hash }) => ({ sequence, hash });
 
 // Sorted, restricted JSON, used identically by the host and offline verifier.
 export function canonical(value, depth = 0) {
@@ -126,7 +128,7 @@ export function verifyEvidence(envelope, trustedFingerprint) {
     kind: payload.kind,
     runtimeId: payload.runtimeId,
     fingerprint: trustedFingerprint,
-    head: payload.head,
+    head: projectHead(payload.head),
   };
 }
 
@@ -139,7 +141,8 @@ function verifyAudit(envelope, trustedFingerprint) {
 /** Retain this separately from future audit exports, under the verifier's control. */
 export function createAuditCheckpoint(envelope, trustedFingerprint) {
   const { runtimeId, fingerprint, head } = verifyAudit(envelope, trustedFingerprint);
-  return { format: CHECKPOINT_FORMAT, runtimeId, fingerprint, head: { ...head } };
+  if (!isRuntimeId(runtimeId)) throw new Error('The runtime ID cannot be represented in a portable checkpoint.');
+  return { format: CHECKPOINT_FORMAT, runtimeId, fingerprint, head };
 }
 
 function auditHashAt(audit, sequence) {
@@ -150,7 +153,7 @@ function verifyPriorHead(audit, verified, checkpoint) {
   const head = checkpoint?.head;
   if (
     checkpoint?.format !== CHECKPOINT_FORMAT ||
-    typeof checkpoint.runtimeId !== 'string' ||
+    !isRuntimeId(checkpoint.runtimeId) ||
     !isSha256(checkpoint.fingerprint) ||
     !Number.isSafeInteger(head?.sequence) || head.sequence < 0 ||
     !isSha256(head.hash) || (head.sequence === 0 && head.hash !== GENESIS_HASH)
@@ -161,7 +164,7 @@ function verifyPriorHead(audit, verified, checkpoint) {
     throw new Error('Audit rollback: the export ends before the retained checkpoint.');
   if (auditHashAt(audit, head.sequence) !== head.hash)
     throw new Error('Audit fork: the export does not contain the retained checkpoint.');
-  return { ...head };
+  return projectHead(head);
 }
 
 export function verifyAuditExtension(audit, trustedFingerprint, checkpoint) {
@@ -183,5 +186,5 @@ export function verifyReceiptInAudit(receipt, audit, trustedFingerprint, checkpo
     auditHashAt(audit, verified.head.sequence) !== verified.head.hash
   )
     throw new Error('The receipt terminal event is absent from this audit.');
-  return { ...verified, kind: 'receipt', auditHead: { ...verifiedAudit.head } };
+  return { ...verified, kind: 'receipt', auditHead: verifiedAudit.head };
 }

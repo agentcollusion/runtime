@@ -464,6 +464,10 @@ void test('retained checkpoints reject owner-signed rollback and forks; receipt 
   const { task } = await f.owner.submit(f.input, 'checkpoint-handoff');
   const middle = await f.owner.audit();
   const checkpoint = createAuditCheckpoint(middle, key);
+  const annotatedHead = f.host.store.sign({ ...middle.payload, head: { ...middle.payload.head, annotation: 'a'.repeat(4096) } });
+  assert.deepEqual(createAuditCheckpoint(annotatedHead, key), checkpoint);
+  const nonportableRuntime = f.host.store.sign({ ...genesis.payload, runtimeId: 'a'.repeat(4096) });
+  assert.throws(() => createAuditCheckpoint(nonportableRuntime, key), /portable checkpoint/);
   const { claimToken } = await f.bob.claim(task.id);
   await f.bob.putArtifact(task.id, 'report', 'Retain the verified head.', claimToken);
   await f.bob.complete(task.id, { delivered: true }, claimToken);
@@ -505,8 +509,8 @@ void test('retained checkpoints reject owner-signed rollback and forks; receipt 
   await assert.rejects(run('verify', file('middle'), '--checkpoint', file('checkpoint'), '--fingerprint', '0'.repeat(64)), /trusted fingerprint/);
   await assert.rejects(run('checkpoint', file('latest'), '--out', file('checkpoint'), '--fingerprint', key), /EEXIST/);
   await writeFile(file('oversized'), '{}');
-  await truncate(file('oversized'), 64 * 1024 * 1024 + 1);
-  await assert.rejects(run('verify', file('oversized'), '--fingerprint', key), /at most 67108864 bytes/);
+  await truncate(file('oversized'), 128 * 1024 * 1024 + 1);
+  await assert.rejects(run('verify', file('oversized'), '--fingerprint', key), /at most 134217728 bytes/);
 });
 
 void test('one host holds the directory lock and persisted state survives a restart', async (t) => {

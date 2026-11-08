@@ -43,7 +43,9 @@ Do not share credential files or owner.json. A runtime grant controls its APIs;
 it does not sandbox your agent's external tools or processes.
 `;
 
-async function readEvidenceJson(filename, limit = 64 * 1024 * 1024) {
+// Legacy CLI exports indent every event. The 32 MiB on-disk audit cap does not
+// include that whitespace or each event's exported hash.
+async function readEvidenceJson(filename, limit = 128 * 1024 * 1024) {
   const handle = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
@@ -108,8 +110,8 @@ async function main() {
   };
   const json = async (file) => JSON.parse(await readFile(file, 'utf8'));
   const print = (value) => console.log(JSON.stringify(value, null, 2));
-  const save = async (file, value) => {
-    await writeFile(file, JSON.stringify(value, null, 2) + '\n', {
+  const save = async (file, value, indent = 2) => {
+    await writeFile(file, JSON.stringify(value, null, indent) + '\n', {
       flag: 'wx',
       mode: 0o600,
     });
@@ -281,7 +283,7 @@ async function main() {
   } else if (command === 'artifact' && action === 'get')
     result = await client.artifact(id, artifactId);
   else if (command === 'audit') {
-    await save(need('out'), await client.audit());
+    await save(need('out'), await client.audit(), 0);
     return;
   } else throw new Error('Unknown command. Use --help.');
   print(result);

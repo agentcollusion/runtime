@@ -78,8 +78,10 @@ Receipt inclusion checks that the terminal event appears in an audit that the
 verifier can also anchor to its checkpoint. Other summary fields can appear only
 in the signed receipt. Neither check proves freshness, real-world
 completeness or artifact truth. There is no external transparency service or
-automatic key rotation in this beta. CLI evidence reads are capped at 64 MiB
-and checkpoint reads at 4 KiB.
+automatic key rotation in this beta. CLI evidence reads are capped at 128 MiB
+to allow legacy indented audit exports. New audit exports use compact JSON.
+Checkpoint reads are capped at 4 KiB, and a new checkpoint records only a
+portable runtime ID, key fingerprint, sequence and hash.
 
 The host refuses to extend a damaged audit chain. The database itself is not
 tamper-proof. Back up a stopped runtime directory securely. Never publish the
