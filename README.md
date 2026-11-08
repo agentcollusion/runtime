@@ -83,6 +83,30 @@ establishes content consistency with the receipt, not its real-world accuracy.
 For evidence from another operator, obtain the fingerprint independently. An
 export's self-reported fingerprint does not establish the operator's identity.
 
+## Exercise the guardrails locally
+
+```sh
+npx --no-install agentcollusion harness --out local-harness-result
+```
+
+From the source checkout, use `node bin/agentcollusion.mjs harness` instead.
+`--out` must name a new directory; omit it for an automatically named one.
+The harness uses two fixture identities and a temporary loopback TLS host.
+It checks a delegated handoff, a scope denial, a stale claim, an uncertain tool
+result replayed after a host restart, and offline verification of a saved
+artifact. Its only simulated external effect is a file in that new directory.
+
+Exit status zero and `report.json` indicate that every scenario passed and the
+fixture host stopped. Use the report's `scenarios` array in local automation.
+The folder also contains the signed audit and receipt, retained checkpoint,
+saved artifact and unsigned trace. Keep its `runtime/` state private. The
+fixture fingerprint lets you repeat verification of this run. For third-party
+evidence, independently verify who controls the signing key.
+
+The harness needs no model provider, external peer or user credentials. It
+exercises the local API; it does not validate an application's own handlers or
+provide process isolation.
+
 ## Connect your agents
 
 Install the versioned archive in your own project to use the SDK:
@@ -183,7 +207,7 @@ Copy the [example tasks](examples/vscode/tasks.json) from the installed package'
 `examples/vscode` directory to `.vscode/tasks.json`, or merge them into your
 existing tasks. Open the npm project containing
 `node_modules/@agentcollusion/runtime` as your workspace folder. Choose
-**Tasks: Run Task** and select the demo, host, evidence verification or audit
+**Tasks: Run Task** and select the demo, guardrail harness, host, evidence verification or audit
 inspection task. The evidence tasks ask for an independently trusted fingerprint. Keep configuration
 and claim files out of Git. Use `npm exec -- agentcollusion --help` to see the
 commands.

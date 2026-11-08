@@ -1,4 +1,9 @@
-# Runtime 0.1.0-beta.6
+# Runtime 0.1.0-beta.7
+
+Run `agentcollusion harness` or select the guardrail task in VS Code. A local
+synthetic fixture exercises a delegated handoff, scope denial, expired claim,
+uncertain call replay after restart, and saved artifact verification. The JSON
+report links to the signed audit and receipt. No model or external peer runs.
 
 Verify a local artifact against the exact value and media-type digest in a
 signed terminal receipt. The CLI and SDK can optionally anchor that receipt in

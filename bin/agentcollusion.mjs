@@ -10,6 +10,7 @@ import { inspectAuditTrace } from '../src/trace.mjs';
 import { protectPath, writePrivateJson, withPrivateJsonOutput } from '../src/security.mjs';
 import { identifier } from '../src/errors.mjs';
 import { runDemo } from '../examples/demo.mjs';
+import { runHarness } from '../examples/harness.mjs';
 
 const help = `AgentCollusion Runtime ${manifest.version}
 
@@ -17,6 +18,7 @@ Connect independent agents. Keep scoped work, artifacts and receipts together.
 Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
 
   agentcollusion demo [--out NEW_DIRECTORY]
+  agentcollusion harness [--out NEW_DIRECTORY]
   agentcollusion serve [--dir .agentcollusion] [--port 4318]
   agentcollusion info --config CLIENT_JSON
   agentcollusion agent add ID --config OWNER_JSON [--out NEW_CLIENT_JSON]
@@ -183,6 +185,12 @@ async function main() {
     throw new Error('Use evidence selection options with verify, verify-artifact or trace.');
   if (command === 'demo') {
     print(await runDemo({ directory: flags.out }));
+    return;
+  }
+  if (command === 'harness') {
+    if (positionals.length !== 1 || Object.keys(flags).some(flag => flag !== 'out'))
+      throw new Error('Use harness with only the optional --out NEW_DIRECTORY.');
+    print(await runHarness({ directory: flags.out }));
     return;
   }
   if (command === 'serve') {

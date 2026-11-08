@@ -40,6 +40,7 @@ const expected = [
   'examples/demo-agent.mjs',
   'examples/demo.mjs',
   'examples/guarded-tool.mjs',
+  'examples/harness.mjs',
   'examples/vscode/tasks.json',
   'src/a2a.mjs',
   'src/client.mjs',

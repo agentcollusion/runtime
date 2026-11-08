@@ -1,5 +1,6 @@
 node_modules/
 .agentcollusion/
 agentcollusion-demo-*/
+agentcollusion-harness-*/
 *.tgz
 release/
