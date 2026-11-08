@@ -6,6 +6,7 @@ import manifest from '../package.json' with { type: 'json' };
 import { RuntimeClient } from '../src/client.mjs';
 import { createRuntime } from '../src/server.mjs';
 import { createAuditCheckpoint, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '../src/evidence.mjs';
+import { inspectAuditTrace } from '../src/trace.mjs';
 import { protectPath, writePrivateJson, withPrivateJsonOutput } from '../src/security.mjs';
 import { identifier } from '../src/errors.mjs';
 import { runDemo } from '../examples/demo.mjs';
@@ -40,6 +41,7 @@ Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
   agentcollusion checkpoint AUDIT_FILE --out NEW_FILE --fingerprint TRUSTED_SHA256
   agentcollusion verify FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE]
   agentcollusion verify RECEIPT_FILE --audit AUDIT_FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE]
+  agentcollusion trace AUDIT_FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE] [--task TASK_ID] [--after SEQUENCE] [--limit ROWS]
 
 Documentation: https://agentcollusion.ai/service/runtime
 Do not share credential files or owner.json. A runtime grant controls its APIs;
@@ -91,6 +93,9 @@ async function main() {
           'fingerprint',
           'checkpoint',
           'audit',
+          'task',
+          'after',
+          'limit',
         ].includes(key) ||
         flags[key] !== undefined ||
         !args[i + 1] ||
@@ -120,9 +125,10 @@ async function main() {
     });
     console.log(`Saved ${path.resolve(file)}`);
   };
-  if (command === 'verify' || command === 'checkpoint') {
+  if (command === 'verify' || command === 'checkpoint' || command === 'trace') {
     if (!action || positionals.length !== 2) throw new Error('Specify exactly one evidence file.');
-    const allowed = command === 'verify' ? ['fingerprint', 'audit', 'checkpoint'] : ['fingerprint', 'out'];
+    const allowed = command === 'verify' ? ['fingerprint', 'audit', 'checkpoint'] : command === 'trace'
+      ? ['fingerprint', 'checkpoint', 'task', 'after', 'limit'] : ['fingerprint', 'out'];
     if (Object.keys(flags).some(flag => !allowed.includes(flag)))
       throw new Error(`Unexpected flag for ${command}. Use --help.`);
     const fingerprint = need('fingerprint');
@@ -132,12 +138,22 @@ async function main() {
       return;
     }
     const checkpoint = flags.checkpoint === undefined ? undefined : await readBoundedJson(flags.checkpoint, 4096);
+    if (command === 'trace') {
+      const integer = (name) => {
+        if (flags[name] === undefined) return undefined;
+        if (!/^(0|[1-9]\d*)$/.test(flags[name])) throw new Error(`--${name} requires a decimal integer.`);
+        return Number(flags[name]);
+      };
+      print(inspectAuditTrace(evidence, { trustedFingerprint: fingerprint, checkpoint, taskId: flags.task, afterSequence: integer('after'), limit: integer('limit') }));
+      return;
+    }
     if (flags.audit) print(verifyReceiptInAudit(evidence, await readBoundedJson(flags.audit), fingerprint, checkpoint));
     else if (checkpoint !== undefined) print(verifyAuditExtension(evidence, fingerprint, checkpoint));
     else print(verifyEvidence(evidence, fingerprint));
     return;
   }
-  if (flags.checkpoint || flags.audit) throw new Error('--checkpoint and --audit are verify options.');
+  if (flags.checkpoint || flags.audit || flags.task || flags.after || flags.limit)
+    throw new Error('Use evidence selection options with verify or trace.');
   if (command === 'demo') {
     print(await runDemo({ directory: flags.out }));
     return;

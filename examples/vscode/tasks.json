@@ -38,6 +38,22 @@
       ],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
+    },
+    {
+      "label": "AgentCollusion: inspect a signed audit",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/node_modules/@agentcollusion/runtime/bin/agentcollusion.mjs",
+        "trace",
+        "${input:auditPath}",
+        "--fingerprint",
+        "${input:trustedFingerprint}",
+        "--limit",
+        "100"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
     }
   ],
   "inputs": [
@@ -45,6 +61,11 @@
       "id": "evidencePath",
       "type": "promptString",
       "description": "Path to a receipt.json or audit.json file"
+    },
+    {
+      "id": "auditPath",
+      "type": "promptString",
+      "description": "Path to a signed audit JSON file"
     },
     {
       "id": "trustedFingerprint",

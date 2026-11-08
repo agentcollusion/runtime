@@ -100,6 +100,11 @@ to allow legacy indented audit exports. The `audit` command writes compact JSON.
 Checkpoint reads are capped at 4 KiB. A checkpoint records its format, a portable
 runtime ID, the key fingerprint, and the audit head's sequence and hash.
 
+`trace` checks the full signed audit, then projects selected metadata and digests
+into an unsigned report of at most 500 events. The original audit is required
+for independent verification. Task, actor and tool identifiers can be sensitive;
+review the report before sharing it.
+
 Tool audits include the invocation ID, task, tool, claim generation, caller and
 argument/result digests. Raw arguments are not stored in the invocation record;
 bounded return values can be stored privately for replay. A handler return is

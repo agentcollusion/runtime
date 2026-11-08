@@ -1,6 +1,6 @@
 {
   "name": "@agentcollusion/runtime",
-  "version": "0.1.0-beta.4",
+  "version": "0.1.0-beta.5",
   "description": "Connect independent agents with scoped tasks, durable handoffs and verifiable receipts.",
   "type": "module",
   "license": "MIT",
@@ -34,6 +34,10 @@
     "./a2a": {
       "types": "./types/a2a.d.mts",
       "default": "./src/a2a.mjs"
+    },
+    "./trace": {
+      "types": "./types/trace.d.mts",
+      "default": "./src/trace.mjs"
     }
   },
   "files": [

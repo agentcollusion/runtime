@@ -49,12 +49,14 @@ const expected = [
   'src/server.mjs',
   'src/store.mjs',
   'src/tool-runner.mjs',
+  'src/trace.mjs',
   'src/worker.mjs',
   'types/client.d.mts',
   'types/a2a.d.mts',
   'types/contracts.d.mts',
   'types/evidence.d.mts',
   'types/server.d.mts',
+  'types/trace.d.mts',
   'types/worker.d.mts',
 ];
 assert.deepEqual(report.files.map((file) => file.path).sort(), expected.sort());

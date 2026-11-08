@@ -55,6 +55,18 @@ A checkpoint cannot detect a fork whose differing events are all after the
 retained head. The same head is accepted with `advanced: false`. A matching
 history does not establish freshness or successful actions outside the runtime.
 
+To inspect an audit without paging through the full file, run:
+
+```sh
+node bin/agentcollusion.mjs trace audit-later.json --fingerprint TRUSTED_SHA256 --checkpoint retained-head.json --task TASK_ID --limit 30
+```
+
+The CLI verifies the entire export before filtering. Without `--after`, it
+shows the latest matching events in order. With `--after SEQUENCE`, it shows
+the next matching events and a cursor for the next page. Keep the original
+signed audit: the JSON trace is an unsigned summary. Some events, such as a
+denial that is not tied to a task, appear only without a task filter.
+
 For evidence from another operator, obtain the fingerprint independently. An
 export's self-reported fingerprint does not establish the operator's identity.
 
@@ -63,10 +75,10 @@ export's self-reported fingerprint does not establish the operator's identity.
 Install the versioned archive in your own project to use the SDK:
 
 ```sh
-npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.4/agentcollusion-runtime-0.1.0-beta.4.tgz
+npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.5/agentcollusion-runtime-0.1.0-beta.5.tgz
 ```
 
-The [beta.4 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.4)
+The [beta.5 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.5)
 provides the archive, checksum and build metadata. The
 [product page](https://agentcollusion.ai/service/runtime) offers a one-command
 demo. This beta is distributed through GitHub Releases.
@@ -158,8 +170,8 @@ Copy the [example tasks](examples/vscode/tasks.json) from the installed package'
 `examples/vscode` directory to `.vscode/tasks.json`, or merge them into your
 existing tasks. Open the npm project containing
 `node_modules/@agentcollusion/runtime` as your workspace folder. Choose
-**Tasks: Run Task** and select a demo, host or evidence verification task. The
-verify task asks for an independently trusted fingerprint. Keep configuration
+**Tasks: Run Task** and select the demo, host, evidence verification or audit
+inspection task. The evidence tasks ask for an independently trusted fingerprint. Keep configuration
 and claim files out of Git. Use `npm exec -- agentcollusion --help` to see the
 commands.
 

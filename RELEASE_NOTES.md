@@ -1,4 +1,9 @@
-# Runtime 0.1.0-beta.4
+# Runtime 0.1.0-beta.5
+
+Inspect a signed audit from the CLI, the `@agentcollusion/runtime/trace` export
+or VS Code Tasks. The inspector verifies the full audit before it selects a
+task or pages through new events. The derived report is unsigned; keep the
+original audit and independently trusted fingerprint for verification.
 
 The opt-in `@agentcollusion/runtime/a2a` export connects a host-registered tool
 to an owner-configured A2A 1.0 JSON-RPC `SendMessage` endpoint. Receive an agent
