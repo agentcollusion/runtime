@@ -1,4 +1,9 @@
-# Runtime 0.1.0-beta.5
+# Runtime 0.1.0-beta.6
+
+Verify a local artifact against the exact value and media-type digest in a
+signed terminal receipt. The CLI and SDK can optionally anchor that receipt in
+a signed audit and retained checkpoint. Cancelled receipts do not bind artifact
+digests to their terminal event and are rejected by this check.
 
 Inspect a signed audit from the CLI, the `@agentcollusion/runtime/trace` export
 or VS Code Tasks. The inspector verifies the full audit before it selects a

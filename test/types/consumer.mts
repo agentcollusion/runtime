@@ -1,7 +1,7 @@
 // Compile only: this consumer exercises the package's exported type conditions.
 import { ClientError, RuntimeClient, type RuntimeConfig, type TaskInput } from '@agentcollusion/runtime';
 import { createRuntime } from '@agentcollusion/runtime/server';
-import { canonical, createAuditCheckpoint, digest, signedEnvelope, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '@agentcollusion/runtime/evidence';
+import { canonical, createAuditCheckpoint, digest, signedEnvelope, verifyAuditExtension, verifyEvidence, verifyReceiptArtifact, verifyReceiptInAudit } from '@agentcollusion/runtime/evidence';
 import { runWorker } from '@agentcollusion/runtime/worker';
 import { createA2ASendTool } from '@agentcollusion/runtime/a2a';
 import { inspectAuditTrace } from '@agentcollusion/runtime/trace';
@@ -60,6 +60,7 @@ signedEnvelope(audit.payload, fixturePrivateKeyPem, audit.publicKey).payload.eve
 const checkpoint = createAuditCheckpoint(audit, trustedFingerprint);
 verifyAuditExtension(audit, trustedFingerprint, checkpoint).advanced.valueOf();
 verifyReceiptInAudit(receipt, audit, trustedFingerprint, checkpoint).auditHead.hash.toLowerCase();
+verifyReceiptArtifact(receipt, trustedFingerprint, artifact, { audit, checkpoint }).sha256.toLowerCase();
 const trace = inspectAuditTrace(audit, { trustedFingerprint, checkpoint, taskId: task.id, limit: 20 });
 trace.selection.nextAfterSequence?.toFixed();
 trace.events[0]?.actor?.toUpperCase();

@@ -243,3 +243,27 @@ export interface VerifiedReceiptInAudit extends VerifiedEvidence {
   kind: 'receipt';
   auditHead: EvidenceHead;
 }
+
+export interface ArtifactCandidate {
+  id: string;
+  mediaType: string;
+  value: JsonValue;
+}
+
+export interface ArtifactEvidenceOptions {
+  audit?: unknown;
+  checkpoint?: unknown;
+}
+
+export interface VerifiedReceiptArtifact {
+  valid: true;
+  kind: 'artifact';
+  runtimeId: string;
+  fingerprint: string;
+  taskId: string;
+  id: string;
+  mediaType: string;
+  sha256: string;
+  head: EvidenceHead;
+  auditHead?: EvidenceHead;
+}

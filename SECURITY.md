@@ -105,6 +105,11 @@ into an unsigned report of at most 500 events. The original audit is required
 for independent verification. Task, actor and tool identifiers can be sensitive;
 review the report before sharing it.
 
+Artifact verification compares the candidate's canonical value and exact media
+type with a digest bound to a completed or failed event. It rejects cancelled
+receipts and requires an audit if a checkpoint is supplied. The check uses no
+network access. It does not verify an artifact's truth or external origin.
+
 Tool audits include the invocation ID, task, tool, claim generation, caller and
 argument/result digests. Raw arguments are not stored in the invocation record;
 bounded return values can be stored privately for replay. A handler return is

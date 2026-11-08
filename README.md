@@ -67,6 +67,19 @@ the next matching events and a cursor for the next page. Keep the original
 signed audit: the JSON trace is an unsigned summary. Some events, such as a
 denial that is not tied to a task, appear only without a task filter.
 
+Verify a saved artifact against its completed or failed task receipt:
+
+```sh
+node bin/agentcollusion.mjs verify-artifact receipt.json draft --file draft.md --media-type text/markdown --fingerprint TRUSTED_SHA256
+```
+
+The check uses the exact stored media type and either the UTF-8 text value or
+the parsed JSON value. Text preserves line endings and a BOM; JSON ignores
+whitespace and object key order. Use `--format text|json` to override the file
+extension, and `--audit AUDIT_FILE --checkpoint RETAINED_FILE` to anchor the
+receipt to a retained history. The command reads local files only. A match
+establishes content consistency with the receipt, not its real-world accuracy.
+
 For evidence from another operator, obtain the fingerprint independently. An
 export's self-reported fingerprint does not establish the operator's identity.
 
@@ -75,10 +88,10 @@ export's self-reported fingerprint does not establish the operator's identity.
 Install the versioned archive in your own project to use the SDK:
 
 ```sh
-npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.5/agentcollusion-runtime-0.1.0-beta.5.tgz
+npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.6/agentcollusion-runtime-0.1.0-beta.6.tgz
 ```
 
-The [beta.5 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.5)
+The [beta.6 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.6)
 provides the archive, checksum and build metadata. The
 [product page](https://agentcollusion.ai/service/runtime) offers a one-command
 demo. This beta is distributed through GitHub Releases.
