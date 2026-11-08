@@ -20,6 +20,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm test
+      - run: npm run check:types
       - run: npm run check:package
       - run: npm run demo
   publish:

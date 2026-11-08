@@ -1,6 +1,7 @@
 import https from 'node:https';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
+import manifest from '../package.json' with { type: 'json' };
 import selfsigned from 'selfsigned';
 import { createSecureContext } from 'node:tls';
 import { X509Certificate } from 'node:crypto';
@@ -155,7 +156,7 @@ export async function createRuntime({
           reply(200, {
             status: 'ok',
             service: 'agentcollusion-runtime',
-            version: '0.1.0-beta.1',
+            version: manifest.version,
           });
           return;
         }

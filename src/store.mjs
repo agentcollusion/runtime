@@ -19,6 +19,7 @@ import {
 
 const terminal = (state) =>
   ['completed', 'failed', 'cancelled'].includes(state);
+const SYSTEM_ACTOR = '@runtime'; // Cannot be registered as an agent ID.
 const secret = () => randomBytes(32).toString('base64url');
 const allows = (scope, operation, resource) =>
   scope.some((p) => p.operation === operation && p.resource === resource);
@@ -651,7 +652,7 @@ export class RuntimeStore {
         task.updatedAt = this.iso();
         this.update('tasks', task);
         this.event(
-          'runtime',
+          SYSTEM_ACTOR,
           `task.${task.state}`,
           task.id,
           exhausted

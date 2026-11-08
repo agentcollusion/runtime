@@ -1,14 +1,16 @@
 #!/usr/bin/env node
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { readFile, mkdir, open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import manifest from '../package.json' with { type: 'json' };
 import { RuntimeClient } from '../src/client.mjs';
 import { createRuntime } from '../src/server.mjs';
-import { verifyEvidence } from '../src/evidence.mjs';
+import { createAuditCheckpoint, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '../src/evidence.mjs';
 import { protectPath, writePrivateJson, withPrivateJsonOutput } from '../src/security.mjs';
 import { identifier } from '../src/errors.mjs';
 import { runDemo } from '../examples/demo.mjs';
 
-const help = `AgentCollusion Runtime 0.1.0-beta.1
+const help = `AgentCollusion Runtime ${manifest.version}
 
 Connect independent agents. Keep scoped work, artifacts and receipts together.
 Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
@@ -32,12 +34,34 @@ Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
   agentcollusion task cancel ID --config CLIENT_JSON
   agentcollusion task receipt ID --out NEW_FILE --config CLIENT_JSON
   agentcollusion audit --out NEW_FILE --config OWNER_JSON
-  agentcollusion verify FILE --fingerprint TRUSTED_SHA256
+  agentcollusion checkpoint AUDIT_FILE --out NEW_FILE --fingerprint TRUSTED_SHA256
+  agentcollusion verify FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE]
+  agentcollusion verify RECEIPT_FILE --audit AUDIT_FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE]
 
 Documentation: https://agentcollusion.ai/service/runtime
 Do not share credential files or owner.json. A runtime grant controls its APIs;
 it does not sandbox your agent's external tools or processes.
 `;
+
+async function readEvidenceJson(filename, limit = 64 * 1024 * 1024) {
+  const handle = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size > limit)
+      throw new Error(`Expected a regular evidence file of at most ${limit} bytes.`);
+    const bytes = Buffer.allocUnsafe(stat.size + 1);
+    let size = 0;
+    while (size < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, size, bytes.length - size, size);
+      if (!bytesRead) break;
+      size += bytesRead;
+    }
+    if (size !== stat.size) throw new Error('Evidence file size changed while reading.');
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, size)));
+  } finally {
+    await handle.close();
+  }
+}
 
 async function main() {
   const positionals = [],
@@ -60,6 +84,8 @@ async function main() {
           'key',
           'claim',
           'fingerprint',
+          'checkpoint',
+          'audit',
         ].includes(key) ||
         flags[key] !== undefined ||
         !args[i + 1] ||
@@ -89,10 +115,24 @@ async function main() {
     });
     console.log(`Saved ${path.resolve(file)}`);
   };
-  if (command === 'verify') {
-    print(verifyEvidence(await json(action), need('fingerprint')));
+  if (command === 'verify' || command === 'checkpoint') {
+    if (!action || positionals.length !== 2) throw new Error('Specify exactly one evidence file.');
+    const allowed = command === 'verify' ? ['fingerprint', 'audit', 'checkpoint'] : ['fingerprint', 'out'];
+    if (Object.keys(flags).some(flag => !allowed.includes(flag)))
+      throw new Error(`Unexpected flag for ${command}. Use --help.`);
+    const fingerprint = need('fingerprint');
+    const evidence = await readEvidenceJson(action);
+    if (command === 'checkpoint') {
+      await save(need('out'), createAuditCheckpoint(evidence, fingerprint));
+      return;
+    }
+    const checkpoint = flags.checkpoint === undefined ? undefined : await readEvidenceJson(flags.checkpoint, 4096);
+    if (flags.audit) print(verifyReceiptInAudit(evidence, await readEvidenceJson(flags.audit), fingerprint, checkpoint));
+    else if (checkpoint !== undefined) print(verifyAuditExtension(evidence, fingerprint, checkpoint));
+    else print(verifyEvidence(evidence, fingerprint));
     return;
   }
+  if (flags.checkpoint || flags.audit) throw new Error('--checkpoint and --audit are verify options.');
   if (command === 'demo') {
     print(await runDemo({ directory: flags.out }));
     return;

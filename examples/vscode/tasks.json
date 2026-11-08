@@ -1,0 +1,55 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AgentCollusion: run the local handoff demo",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/node_modules/@agentcollusion/runtime/bin/agentcollusion.mjs",
+        "demo"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentCollusion: start a private local host",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/node_modules/@agentcollusion/runtime/bin/agentcollusion.mjs",
+        "serve",
+        "--dir",
+        "${workspaceFolder}/.agentcollusion"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentCollusion: verify an evidence file",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/node_modules/@agentcollusion/runtime/bin/agentcollusion.mjs",
+        "verify",
+        "${input:evidencePath}",
+        "--fingerprint",
+        "${input:trustedFingerprint}"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "evidencePath",
+      "type": "promptString",
+      "description": "Path to a receipt.json or audit.json file"
+    },
+    {
+      "id": "trustedFingerprint",
+      "type": "promptString",
+      "description": "Independently trusted SHA-256 key fingerprint (64 lowercase hex characters)"
+    }
+  ]
+}

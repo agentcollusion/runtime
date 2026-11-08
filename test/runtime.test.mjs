@@ -1,12 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile, mkdir, truncate } from 'node:fs/promises';
 import https from 'node:https';
 import path from 'node:path';
 import os from 'node:os';
 import { createRuntime } from '../src/server.mjs';
 import { RuntimeClient } from '../src/client.mjs';
-import { verifyEvidence, digest } from '../src/evidence.mjs';
+import {
+  createAuditCheckpoint,
+  digest,
+  verifyAuditExtension,
+  verifyEvidence,
+  verifyReceiptInAudit,
+} from '../src/evidence.mjs';
 import { runWorker } from '../src/worker.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
@@ -447,6 +453,62 @@ void test('evidence rejects content changes, an unpinned key and a broken event 
   );
 });
 
+void test('retained checkpoints reject owner-signed rollback and forks; receipt membership is independent', async (t) => {
+  const f = await fixture(t);
+  const key = f.host.store.keyFingerprint;
+  const before = await f.owner.audit();
+  const genesis = f.host.store.sign({
+    kind: 'audit', events: [], head: { sequence: 0, hash: '0'.repeat(64) },
+  });
+  assert.equal(verifyAuditExtension(before, key, createAuditCheckpoint(genesis, key)).advanced, true);
+  const { task } = await f.owner.submit(f.input, 'checkpoint-handoff');
+  const middle = await f.owner.audit();
+  const checkpoint = createAuditCheckpoint(middle, key);
+  const { claimToken } = await f.bob.claim(task.id);
+  await f.bob.putArtifact(task.id, 'report', 'Retain the verified head.', claimToken);
+  await f.bob.complete(task.id, { delivered: true }, claimToken);
+  const receipt = await f.owner.receipt(task.id);
+  const latest = await f.owner.audit();
+
+  assert.equal(verifyAuditExtension(middle, key, checkpoint).advanced, false);
+  assert.deepEqual(verifyAuditExtension(latest, key, checkpoint).previousHead, middle.payload.head);
+  assert.equal(verifyAuditExtension(latest, key, checkpoint).advanced, true);
+  assert.throws(() => verifyAuditExtension(before, key, checkpoint), /rollback/);
+  assert.throws(() => verifyAuditExtension(latest, key, { ...checkpoint, runtimeId: 'unrelated' }), /different runtime/);
+  assert.throws(() => verifyAuditExtension(latest, key, { ...checkpoint, head: { ...checkpoint.head, sequence: -1 } }), /Invalid retained/);
+  assert.throws(() => createAuditCheckpoint(receipt, key), /signed audit/);
+
+  const rewrite = structuredClone(latest.payload);
+  rewrite.events[0].actor = 'rewritten-by-the-signer';
+  let previousHash = '0'.repeat(64);
+  for (const event of rewrite.events) {
+    const { hash: _old, ...record } = event;
+    record.previousHash = event.previousHash = previousHash;
+    previousHash = event.hash = digest(record);
+  }
+  rewrite.head.hash = previousHash;
+  const fork = f.host.store.sign(rewrite);
+  assert.equal(verifyEvidence(fork, key).valid, true);
+  assert.throws(() => verifyAuditExtension(fork, key, checkpoint), /fork/);
+  assert.throws(() => verifyReceiptInAudit(receipt, fork, key), /absent/);
+  assert.throws(() => verifyReceiptInAudit(receipt, middle, key, checkpoint), /absent/);
+  assert.deepEqual(verifyReceiptInAudit(receipt, latest, key, checkpoint).auditHead, latest.payload.head);
+
+  const cli = fileURLToPath(new URL('../bin/agentcollusion.mjs', import.meta.url));
+  const run = (...args) => promisify(execFile)(process.execPath, [cli, ...args], { timeout: 10000 });
+  const file = (name) => path.join(f.directory, `${name}.json`);
+  for (const [name, value] of [['middle', middle], ['latest', latest], ['receipt', receipt]])
+    await writeFile(file(name), JSON.stringify(value));
+  await run('checkpoint', file('middle'), '--out', file('checkpoint'), '--fingerprint', key);
+  const anchored = await run('verify', file('receipt'), '--audit', file('latest'), '--checkpoint', file('checkpoint'), '--fingerprint', key);
+  assert.deepEqual(JSON.parse(anchored.stdout).auditHead, latest.payload.head);
+  await assert.rejects(run('verify', file('middle'), '--checkpoint', file('checkpoint'), '--fingerprint', '0'.repeat(64)), /trusted fingerprint/);
+  await assert.rejects(run('checkpoint', file('latest'), '--out', file('checkpoint'), '--fingerprint', key), /EEXIST/);
+  await writeFile(file('oversized'), '{}');
+  await truncate(file('oversized'), 64 * 1024 * 1024 + 1);
+  await assert.rejects(run('verify', file('oversized'), '--fingerprint', key), /at most 67108864 bytes/);
+});
+
 void test('one host holds the directory lock and persisted state survives a restart', async (t) => {
   const prefix = path.join(os.tmpdir(), 'agentcollusion-restart-tests-');
   const directory = await mkdtemp(prefix);
@@ -794,19 +856,23 @@ void test('inboxes and task lists expose bounded summaries and leave inputs for 
 
 void test('exhausted work becomes a recorded failure and does not poison the recipient inbox', async (t) => {
   const f = await fixture(t);
-  const { task } = await f.owner.submit(f.input, 'exhausted');
+  const { token } = await f.owner.createAgent({ id: 'runtime' });
+  const agentNamedRuntime = new RuntimeClient({ url: f.host.url, ca: f.host.certificate, token });
+  const { task } = await f.owner.submit({ ...f.input, to: 'runtime' }, 'exhausted');
   for (let attempt = 0; attempt < 20; attempt++) {
-    await f.bob.claim(task.id, 1000);
+    await agentNamedRuntime.claim(task.id, 1000);
     f.advance(1001);
   }
-  const inbox = await f.bob.inbox();
+  const inbox = await agentNamedRuntime.inbox();
   assert.equal(inbox.tasks.length, 0);
   assert.equal((await f.owner.task(task.id)).state, 'failed');
+  const receipt = await f.owner.receipt(task.id);
   assert.equal(
-    verifyEvidence(await f.owner.receipt(task.id), f.host.store.keyFingerprint)
-      .valid,
+    verifyEvidence(receipt, f.host.store.keyFingerprint).valid,
     true,
   );
+  assert.equal(receipt.payload.taskEvent.actor, '@runtime');
+  assert.ok((await f.owner.audit()).payload.events.some(event => event.type === 'task.claimed' && event.actor === 'runtime'));
   const next = await f.owner.submit(f.input, 'healthy-after-exhaustion');
   assert.equal((await f.bob.inbox()).tasks[0].id, next.task.id);
 });

@@ -61,15 +61,25 @@ deadlines, claim generations, input/result digests, artifact IDs/digests and den
 codes. They exclude bearer/claim tokens and input/result/artifact bodies. Receipts
 also contain the task title and terminal metadata. Names/scopes may be sensitive;
 low-entropy values can be guessed from hashes. Review exports before sharing.
+New automatic expiry and attempt-exhaustion events use actor `@runtime`, which
+cannot be an agent ID. Existing signed events retain their original actor strings.
 
 Verify against an independently obtained Ed25519 SPKI-DER SHA-256 fingerprint. A
 fingerprint from the same untrusted export adds no identity assurance. The audit
-verifier checks the chain from genesis to its declared head. Receipts bind a
-terminal summary/digests to its terminal event; they do not expose or prove the
-whole global history. Neither format proves freshness, real-world completeness,
-absence of rollback, or protection against owner-created forks. Retain known
-heads outside the runtime and compare later exports. There is no external
-transparency service or automatic key rotation in this beta.
+verifier checks the chain from genesis to its declared head. A receipt signature
+authenticates the reported task summary. The verifier matches the terminal event
+and cross-checks result and artifact digests against completed and failed events.
+Cancelled events record a reason. Retain a verified checkpoint outside the
+runtime, where the signer cannot replace it. Check a later export against that
+head to detect a rollback past it or a fork that changes that prefix. Two branches
+that share the retained prefix can both pass until the verifier retains a later
+head. Replaying the same head is valid and reported as `advanced: false`.
+Receipt inclusion checks that the terminal event appears in an audit that the
+verifier can also anchor to its checkpoint. Other summary fields can appear only
+in the signed receipt. Neither check proves freshness, real-world
+completeness or artifact truth. There is no external transparency service or
+automatic key rotation in this beta. CLI evidence reads are capped at 64 MiB
+and checkpoint reads at 4 KiB.
 
 The host refuses to extend a damaged audit chain. The database itself is not
 tamper-proof. Back up a stopped runtime directory securely. Never publish the

@@ -1,5 +1,9 @@
 import { createHash, createPublicKey, sign, verify } from 'node:crypto';
 
+const GENESIS_HASH = '0'.repeat(64);
+const CHECKPOINT_FORMAT = 'agentcollusion-audit-checkpoint/v1';
+const isSha256 = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+
 // Sorted, restricted JSON, used identically by the host and offline verifier.
 export function canonical(value, depth = 0) {
   if (depth > 64) throw new Error('JSON nesting exceeds 64 levels.');
@@ -46,10 +50,7 @@ export function signedEnvelope(payload, privateKey, publicKey) {
 }
 
 export function verifyEvidence(envelope, trustedFingerprint) {
-  if (
-    typeof trustedFingerprint !== 'string' ||
-    !/^[a-f0-9]{64}$/.test(trustedFingerprint)
-  )
+  if (!isSha256(trustedFingerprint))
     throw new Error(
       'An independently trusted SHA-256 public-key fingerprint is required.',
     );
@@ -80,7 +81,7 @@ export function verifyEvidence(envelope, trustedFingerprint) {
   if (payload.kind === 'audit') {
     if (!Array.isArray(payload.events))
       throw new Error('Missing audit events.');
-    let previousHash = '0'.repeat(64);
+    let previousHash = GENESIS_HASH;
     for (const [index, event] of payload.events.entries()) {
       const { hash, ...record } = event;
       if (
@@ -127,4 +128,60 @@ export function verifyEvidence(envelope, trustedFingerprint) {
     fingerprint: trustedFingerprint,
     head: payload.head,
   };
+}
+
+function verifyAudit(envelope, trustedFingerprint) {
+  const verified = verifyEvidence(envelope, trustedFingerprint);
+  if (verified.kind !== 'audit') throw new Error('Expected a signed audit export.');
+  return verified;
+}
+
+/** Retain this separately from future audit exports, under the verifier's control. */
+export function createAuditCheckpoint(envelope, trustedFingerprint) {
+  const { runtimeId, fingerprint, head } = verifyAudit(envelope, trustedFingerprint);
+  return { format: CHECKPOINT_FORMAT, runtimeId, fingerprint, head: { ...head } };
+}
+
+function auditHashAt(audit, sequence) {
+  return sequence === 0 ? GENESIS_HASH : audit.payload.events[sequence - 1]?.hash;
+}
+
+function verifyPriorHead(audit, verified, checkpoint) {
+  const head = checkpoint?.head;
+  if (
+    checkpoint?.format !== CHECKPOINT_FORMAT ||
+    typeof checkpoint.runtimeId !== 'string' ||
+    !isSha256(checkpoint.fingerprint) ||
+    !Number.isSafeInteger(head?.sequence) || head.sequence < 0 ||
+    !isSha256(head.hash) || (head.sequence === 0 && head.hash !== GENESIS_HASH)
+  ) throw new Error('Invalid retained audit checkpoint.');
+  if (checkpoint.fingerprint !== verified.fingerprint || checkpoint.runtimeId !== verified.runtimeId)
+    throw new Error('Retained checkpoint belongs to a different runtime or signing key.');
+  if (head.sequence > verified.head.sequence)
+    throw new Error('Audit rollback: the export ends before the retained checkpoint.');
+  if (auditHashAt(audit, head.sequence) !== head.hash)
+    throw new Error('Audit fork: the export does not contain the retained checkpoint.');
+  return { ...head };
+}
+
+export function verifyAuditExtension(audit, trustedFingerprint, checkpoint) {
+  const verified = verifyAudit(audit, trustedFingerprint);
+  const previousHead = verifyPriorHead(audit, verified, checkpoint);
+  return { ...verified, kind: 'audit', previousHead, advanced: verified.head.sequence > previousHead.sequence };
+}
+
+export function verifyReceiptInAudit(receipt, audit, trustedFingerprint, checkpoint) {
+  const verified = verifyEvidence(receipt, trustedFingerprint);
+  if (verified.kind !== 'receipt') throw new Error('Expected a signed terminal receipt.');
+  const verifiedAudit = checkpoint === undefined
+    ? verifyAudit(audit, trustedFingerprint)
+    : verifyAuditExtension(audit, trustedFingerprint, checkpoint);
+  if (verified.runtimeId !== verifiedAudit.runtimeId)
+    throw new Error('Receipt and audit belong to different runtimes.');
+  if (
+    !Number.isSafeInteger(verified.head.sequence) || verified.head.sequence < 1 ||
+    auditHashAt(audit, verified.head.sequence) !== verified.head.hash
+  )
+    throw new Error('The receipt terminal event is absent from this audit.');
+  return { ...verified, kind: 'receipt', auditHead: { ...verifiedAudit.head } };
 }
