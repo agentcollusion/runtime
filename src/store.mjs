@@ -86,6 +86,7 @@ export class RuntimeStore {
       CREATE TABLE IF NOT EXISTS grants (id TEXT PRIMARY KEY, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, sender TEXT NOT NULL, recipient TEXT NOT NULL, idem TEXT NOT NULL, request_hash TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(sender, idem));
       CREATE TABLE IF NOT EXISTS artifacts (task_id TEXT NOT NULL, generation INTEGER NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(task_id, generation, id));
+      CREATE TABLE IF NOT EXISTS tool_calls (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, tool_id TEXT NOT NULL, body TEXT NOT NULL, result_bytes INTEGER NOT NULL DEFAULT 0, UNIQUE(task_id, tool_id));
       CREATE TABLE IF NOT EXISTS events (sequence INTEGER PRIMARY KEY, body TEXT NOT NULL, hash TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS tasks_recipient ON tasks(recipient);
       CREATE INDEX IF NOT EXISTS tasks_sender ON tasks(sender);`);
@@ -792,6 +793,57 @@ export class RuntimeStore {
       });
       return this.viewTask(task);
     });
+  }
+  toolContext(actor, taskId, toolId, claimToken) {
+    const task = this.claimed(actor, taskId, claimToken);
+    identifier(toolId, 'tool ID');
+    must(allows(task.permissions, 'tool.invoke', toolId), 403, 'SCOPE_DENIED', 'Tool invocation is outside the task grant.');
+    return task;
+  }
+  findToolCall(taskId, toolId) {
+    const row = this.db.prepare('SELECT body FROM tool_calls WHERE task_id = ? AND tool_id = ?').get(taskId, toolId);
+    return row ? JSON.parse(row.body) : null;
+  }
+  startToolCall(actor, task, toolId, inputSha256) {
+    must(
+      this.db.prepare('SELECT COUNT(*) AS count FROM tool_calls').get().count < 2048,
+      507, 'TOOL_CAPACITY', 'This runtime stores at most 2048 tool invocations.',
+    );
+    const call = {
+      id: randomUUID(), taskId: task.id, toolId, actor, generation: task.generation,
+      inputSha256, state: 'started', startedAt: this.iso(),
+    };
+    return this.transaction(() => {
+      this.db.prepare('INSERT INTO tool_calls (id, task_id, tool_id, body) VALUES (?, ?, ?, ?)')
+        .run(call.id, call.taskId, call.toolId, canonical(call));
+      this.event(actor, 'tool.started', task.id, { invocationId: call.id, toolId, generation: call.generation, inputSha256 });
+      return call;
+    });
+  }
+  settleToolCall(call, outcome) {
+    let bytes = outcome.state === 'returned' ? Buffer.byteLength(canonical(outcome.result)) : 0;
+    if (bytes && this.db.prepare('SELECT COALESCE(SUM(result_bytes), 0) AS bytes FROM tool_calls').get().bytes + bytes > 8 * 1024 * 1024) {
+      outcome = { state: 'uncertain', reason: 'result_capacity' };
+      bytes = 0;
+    }
+    const settled = { ...call, ...outcome, finishedAt: this.iso() };
+    if (outcome.state === 'returned') settled.resultSha256 = digest(outcome.result);
+    return this.transaction(() => {
+      const update = this.db.prepare("UPDATE tool_calls SET body = ?, result_bytes = ? WHERE id = ? AND json_extract(body, '$.state') = 'started'")
+        .run(canonical(settled), bytes, call.id);
+      must(update.changes === 1, 500, 'TOOL_STATE', 'The started tool call cannot be settled.');
+      this.event('@runtime', `tool.${outcome.state}`, call.taskId, {
+        invocationId: call.id, toolId: call.toolId, caller: call.actor, generation: call.generation,
+        ...(outcome.state === 'returned' ? { resultSha256: settled.resultSha256 } : { reason: outcome.reason }),
+      });
+      return settled;
+    });
+  }
+  inspectToolCall(actor, id) {
+    this.owner(actor);
+    const call = this.read('tool_calls', identifier(id, 'invocation ID'));
+    must(call, 404, 'TOOL_CALL_NOT_FOUND', 'The invocation was not found.');
+    return call;
   }
   putArtifact(actor, taskId, id, input, claimToken) {
     const task = this.claimed(actor, taskId, claimToken);

@@ -183,6 +183,17 @@ export class RuntimeClient {
       `tasks/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`,
     );
   }
+  invokeTool(id, toolId, value, claimToken) {
+    return this.request(
+      'POST',
+      `tasks/${encodeURIComponent(id)}/tools/${encodeURIComponent(toolId)}`,
+      { value },
+      { 'X-Claim-Token': claimToken },
+    );
+  }
+  inspectTool(invocationId) {
+    return this.request('GET', `tool-calls/${encodeURIComponent(invocationId)}`);
+  }
   complete(id, result, claimToken) {
     return this.request(
       'POST',
