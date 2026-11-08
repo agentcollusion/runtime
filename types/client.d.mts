@@ -2,7 +2,7 @@ import type {
   AgentCredential, AgentRecord, Artifact, ArtifactReference, AuditPayload, Claim,
   EvidenceEnvelope, Grant, GrantInput, InboxTask, JsonObject, JsonValue,
   ReceiptPayload, RunningTask, RuntimeConfig, RuntimeInfo, Submission, Task,
-  TaskInput, TaskSummary, TerminalTask, WaitOptions,
+  TaskInput, TaskSummary, TerminalTask, ToolCall, ToolObservation, WaitOptions,
 } from './contracts.mjs';
 
 export type * from './contracts.mjs';
@@ -38,6 +38,11 @@ export class RuntimeClient {
   heartbeat(id: string, claimToken: string, leaseMs?: number): Promise<RunningTask>;
   putArtifact(id: string, artifactId: string, value: JsonValue, claimToken: string, mediaType?: string): Promise<ArtifactReference>;
   artifact(id: string, artifactId: string): Promise<Artifact>;
+  invokeTool(id: string, toolId: string, value: JsonValue, claimToken: string): Promise<ToolCall>;
+  /** Requires an owner credential. */
+  inspectTool(invocationId: string): Promise<ToolCall>;
+  /** Records an owner observation, without redispatching the tool. */
+  reconcileTool(invocationId: string, observation: ToolObservation): Promise<ToolCall>;
   complete(id: string, result: JsonObject, claimToken: string): Promise<TerminalTask & { state: 'completed' }>;
   fail(id: string, result: JsonObject, claimToken: string): Promise<TerminalTask & { state: 'failed' }>;
   cancel(id: string): Promise<TerminalTask & { state: 'cancelled' }>;

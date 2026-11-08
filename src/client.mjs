@@ -194,6 +194,9 @@ export class RuntimeClient {
   inspectTool(invocationId) {
     return this.request('GET', `tool-calls/${encodeURIComponent(invocationId)}`);
   }
+  reconcileTool(invocationId, observation) {
+    return this.request('POST', `tool-calls/${encodeURIComponent(invocationId)}/reconcile`, observation);
+  }
   complete(id, result, claimToken) {
     return this.request(
       'POST',

@@ -1,9 +1,13 @@
+import type { ToolDefinition } from './contracts.mjs';
+
 export interface RuntimeOptions {
   directory?: string;
   /** Defaults to 4318. Use 0 for an OS-assigned loopback port. */
   port?: number;
   /** A clock in epoch milliseconds, useful for deterministic harnesses. */
   now?: () => number;
+  /** Trusted, host-registered application tools; there are no default tools. */
+  tools?: Readonly<Record<string, ToolDefinition>>;
 }
 
 export interface RuntimeHost {

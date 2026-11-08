@@ -1,6 +1,17 @@
-# Runtime 0.1.0-beta.2
+# Runtime 0.1.0-beta.3
 
-This release adds an offline audit checkpoint and receipt inclusion verifier.
+Register application tools in a local host and grant an agent permission to call
+an exact tool on its current task. An invocation starts with a durable audit
+event. Replays return the existing record, including after a worker reclaims
+the task. A timeout or interrupted response remains uncertain; the owner can
+attach an evidence digest and an observation without dispatching it again.
+
+Try `examples/guarded-tool.mjs` to see a denied request, a successful local
+check, a replay that does not run again, and a receipt verified in its audit.
+The runtime cannot prove what an external system did. Trusted handler code
+remains responsible for validating arguments and constraining its effects.
+
+The offline audit checkpoint and receipt inclusion verifier remain available.
 Keep a checkpoint outside the runtime to detect later signed exports that rewind
 or rewrite the retained history. Check a terminal receipt against an audit before
 using it as evidence. These checks do not prove freshness or real-world effects.

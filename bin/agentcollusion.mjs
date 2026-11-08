@@ -29,6 +29,9 @@ Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
   agentcollusion task heartbeat ID --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion artifact put TASK_ID ARTIFACT_ID --file FILE --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion artifact get TASK_ID ARTIFACT_ID --config CLIENT_JSON
+  agentcollusion tool call TASK_ID TOOL_ID --file INPUT_JSON --claim CLAIM_JSON --config CLIENT_JSON
+  agentcollusion tool inspect INVOCATION_ID --config OWNER_JSON
+  agentcollusion tool reconcile INVOCATION_ID --file OBSERVATION_JSON --config OWNER_JSON
   agentcollusion task complete ID --file RESULT_JSON --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion task fail ID --file RESULT_JSON --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion task cancel ID --config CLIENT_JSON
@@ -45,12 +48,12 @@ it does not sandbox your agent's external tools or processes.
 
 // Legacy CLI exports indent every event. The 32 MiB on-disk audit cap does not
 // include that whitespace or each event's exported hash.
-async function readEvidenceJson(filename, limit = 128 * 1024 * 1024) {
+async function readBoundedJson(filename, limit = 128 * 1024 * 1024) {
   const handle = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > limit)
-      throw new Error(`Expected a regular evidence file of at most ${limit} bytes.`);
+      throw new Error(`Expected a regular JSON file of at most ${limit} bytes.`);
     const bytes = Buffer.allocUnsafe(stat.size + 1);
     let size = 0;
     while (size < bytes.length) {
@@ -58,7 +61,7 @@ async function readEvidenceJson(filename, limit = 128 * 1024 * 1024) {
       if (!bytesRead) break;
       size += bytesRead;
     }
-    if (size !== stat.size) throw new Error('Evidence file size changed while reading.');
+    if (size !== stat.size) throw new Error('JSON file size changed while reading.');
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, size)));
   } finally {
     await handle.close();
@@ -123,13 +126,13 @@ async function main() {
     if (Object.keys(flags).some(flag => !allowed.includes(flag)))
       throw new Error(`Unexpected flag for ${command}. Use --help.`);
     const fingerprint = need('fingerprint');
-    const evidence = await readEvidenceJson(action);
+    const evidence = await readBoundedJson(action);
     if (command === 'checkpoint') {
       await save(need('out'), createAuditCheckpoint(evidence, fingerprint));
       return;
     }
-    const checkpoint = flags.checkpoint === undefined ? undefined : await readEvidenceJson(flags.checkpoint, 4096);
-    if (flags.audit) print(verifyReceiptInAudit(evidence, await readEvidenceJson(flags.audit), fingerprint, checkpoint));
+    const checkpoint = flags.checkpoint === undefined ? undefined : await readBoundedJson(flags.checkpoint, 4096);
+    if (flags.audit) print(verifyReceiptInAudit(evidence, await readBoundedJson(flags.audit), fingerprint, checkpoint));
     else if (checkpoint !== undefined) print(verifyAuditExtension(evidence, fingerprint, checkpoint));
     else print(verifyEvidence(evidence, fingerprint));
     return;
@@ -282,6 +285,16 @@ async function main() {
     );
   } else if (command === 'artifact' && action === 'get')
     result = await client.artifact(id, artifactId);
+  else if (command === 'tool' && action === 'call') {
+    if (!id || !artifactId) throw new Error('Specify a task ID and tool ID.');
+    result = await client.invokeTool(id, artifactId, await readBoundedJson(need('file'), 256 * 1024), await claim());
+  } else if (command === 'tool' && action === 'inspect') {
+    if (!id || artifactId) throw new Error('Specify one invocation ID.');
+    result = await client.inspectTool(id);
+  } else if (command === 'tool' && action === 'reconcile') {
+    if (!id || artifactId) throw new Error('Specify one invocation ID.');
+    result = await client.reconcileTool(id, await readBoundedJson(need('file'), 4096));
+  }
   else if (command === 'audit') {
     await save(need('out'), await client.audit(), 0);
     return;

@@ -374,6 +374,13 @@ export async function createRuntime({
         ) {
           value = toolCallView(store.inspectToolCall(actor, id), toolRunner, true);
         } else if (
+          resource === 'tool-calls' && segments.length === 4 && action === 'reconcile' && method === 'POST'
+        ) {
+          store.owner(actor);
+          must(!toolRunner.running(id), 409, 'TOOL_STILL_RUNNING', 'Wait for the handler to settle before recording an observation.');
+          const { call, replayed } = store.reconcileToolCall(actor, id, input);
+          value = toolCallView(call, toolRunner, replayed);
+        } else if (
           resource === 'audit' &&
           segments.length === 2 &&
           method === 'GET'

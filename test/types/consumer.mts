@@ -8,13 +8,18 @@ declare const recipientConfig: RuntimeConfig;
 declare const trustedFingerprint: string;
 declare const fixturePrivateKeyPem: string;
 const recipient = new RuntimeClient(recipientConfig);
-const host = await createRuntime({ port: 0 });
+const host = await createRuntime({ port: 0, tools: {
+  'check-manifest': { run: ({ input, signal }) => {
+    signal.throwIfAborted();
+    return { inputType: typeof input };
+  } },
+} });
 const owner = new RuntimeClient({ url: host.url, ca: host.certificate, token: host.store.identity.token });
 const input = {
   to: 'writer',
   title: 'Draft notes',
   input: { changes: ['Scoped handoffs'] },
-  permissions: [{ operation: 'artifact.write', resource: 'draft' }],
+  permissions: [{ operation: 'artifact.write', resource: 'draft' }, { operation: 'tool.invoke', resource: 'check-manifest' }],
   requiredArtifacts: ['draft'],
   expiresAt: new Date(Date.now() + 600000).toISOString(),
 } as const satisfies TaskInput;
@@ -26,8 +31,10 @@ const controller = new AbortController();
 const worker = runWorker({
   client: recipient,
   signal: controller.signal,
-  async handle({ task: running, signal, artifact }) {
+  async handle({ task: running, signal, artifact, tool }) {
     signal.throwIfAborted();
+    const checked = await tool('check-manifest', running.input);
+    if (checked.state !== 'returned') throw new Error(`Tool ended ${checked.state}`);
     const ref = await artifact('draft', { from: running.from, input: running.input });
     return { artifactId: ref.id, digest: ref.sha256 };
   },

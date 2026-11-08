@@ -105,6 +105,10 @@ export async function runWorker({
         wait: (id, options) =>
           client.wait(id, { ...options, signal: controller.signal }),
         readArtifact: (id, artifactId) => client.artifact(id, artifactId),
+        tool: (id, value) => {
+          controller.signal.throwIfAborted();
+          return client.invokeTool(candidate.id, id, value, claim.claimToken);
+        },
       });
       controller.signal.throwIfAborted();
       heartbeatStop.abort();

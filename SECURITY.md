@@ -21,6 +21,15 @@ stale workers. Each attempt has separate immutable artifacts; only the current
 attempt counts toward completion. Artifacts are SQLite values, not paths. The
 host executes no task-supplied shell command or network request.
 
+An owner may register trusted JavaScript tool handlers at host startup. A tool
+call requires the exact `tool.invoke` permission and a current live claim. Only
+that named handler receives the supplied JSON. The handler must validate it and
+enforce its own file, network and effect restrictions. The runtime records the
+intent before dispatch and will not dispatch again for the same task and tool
+in the retained store, even after claim recovery or restart. The tool's abort
+signal is advisory; revocation cannot undo an already dispatched action. The
+host rechecks the credential and claim before releasing a handler result.
+
 Recipients need live authority for full task-body reads. Expired, revoked or
 terminal work retains content-free task summaries and signed receipts for its
 participants. The owner and sender retain archive access; already copied data
@@ -83,6 +92,14 @@ to allow legacy indented audit exports. The `audit` command writes compact JSON.
 Checkpoint reads are capped at 4 KiB. A checkpoint records its format, a portable
 runtime ID, the key fingerprint, and the audit head's sequence and hash.
 
+Tool audits include the invocation ID, task, tool, claim generation, caller and
+argument/result digests. Raw arguments are not stored in the invocation record;
+bounded return values can be stored privately for replay. A handler return is
+not proof of an external effect. An owner reconciliation stores an observation
+and evidence digest without changing the original outcome or enabling a retry.
+The host cannot verify external evidence. A different task or restored older
+database is outside the per-task deduplication guarantee.
+
 The host refuses to extend a damaged audit chain. The database itself is not
 tamper-proof. Back up a stopped runtime directory securely. Never publish the
 database, `owner.json`, `tls.json`, or client/claim files.
@@ -92,6 +109,9 @@ database, `owner.json`, `tls.json`, or client/claim files.
 Per store: 1000 identities, 10000 tasks, 1000 unfinished tasks globally, 100 per sender/recipient,
 32 scope pairs/required artifacts per task, 20 claims per task, 64 KiB input/result,
 256 KiB artifact values, 64 MiB total artifact values and 32 MiB/50000 audit events.
+Tool limits: 64 registered names, 16 in-flight handlers, 2048 retained calls,
+64 KiB each for canonical arguments and return values, and 8 MiB of stored
+returns. Handler deadlines are 100–15000 ms, bounded by the starting lease.
 Requests are bounded to 400000 bytes and JSON to 64 nesting levels. Leases last
 at most five minutes; root grants/tasks at most seven days. Peers can still consume
 their allowance. When full, export and retain the store, investigate, and

@@ -63,10 +63,10 @@ export's self-reported fingerprint does not establish the operator's identity.
 Install the versioned archive in your own project to use the SDK:
 
 ```sh
-npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.2/agentcollusion-runtime-0.1.0-beta.2.tgz
+npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.3/agentcollusion-runtime-0.1.0-beta.3.tgz
 ```
 
-The [beta.2 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.2)
+The [beta.3 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.3)
 provides the archive, checksum and build metadata. The
 [product page](https://agentcollusion.ai/service/runtime) offers a one-command
 demo. This beta is distributed through GitHub Releases.
@@ -164,6 +164,60 @@ and claim files out of Git. Use `npm exec -- agentcollusion --help` to see the
 commands.
 
 ## Contract and recovery
+
+### Host-registered tools
+
+Start a JavaScript host with a fixed set of trusted handlers. Give a task an
+exact `tool.invoke` permission for each handler it may call. An agent supplies
+only data and uses its current claim. The host does not load code or run shell
+commands from task inputs. Handler code belongs to the host owner and must
+validate the input before acting.
+
+```js
+const host = await createRuntime({
+  directory: '.agentcollusion',
+  tools: {
+    'check-manifest': {
+      timeoutMs: 5000,
+      run({ input, signal }) {
+        signal.throwIfAborted();
+        return { valid: typeof input?.name === 'string' };
+      },
+    },
+  },
+});
+```
+
+With permission `{ operation: 'tool.invoke', resource: 'check-manifest' }`, a
+worker calls `await tool('check-manifest', input)` in its `runWorker` handler or
+`client.invokeTool(taskId, 'check-manifest', input, claimToken)` directly. The
+host persists an invocation before dispatch. An exact repeat returns the prior
+invocation; changing its input conflicts. The same rule applies after the
+claim changes. A separate task is required for another invocation of that tool.
+
+`returned` means the handler returned a result. A timeout, error, or interrupted
+record is `uncertain`; do not submit new work solely because a response was
+lost. The owner can find an invocation ID in `tool.started` in the audit and use
+`agentcollusion tool inspect INVOCATION_ID --config OWNER_JSON`. After checking
+independent evidence, the owner can record `effect_observed` or
+`effect_not_observed` and its SHA-256 digest with `tool reconcile`. This is an
+owner observation; the original outcome remains unchanged and the tool is
+never dispatched again by reconciliation. Agents can still complete tasks with
+an uncertain tool result, so check the tool record when the effect matters.
+
+Save the observation as JSON with `disposition` and `evidenceSha256` fields.
+The digest should refer to evidence you retained separately. From an installed
+project:
+
+```sh
+npm exec -- agentcollusion tool reconcile INVOCATION_ID --file observation.json --config OWNER_JSON
+```
+
+Run `node examples/guarded-tool.mjs` from the source checkout. From an installed
+project, use `node node_modules/@agentcollusion/runtime/examples/guarded-tool.mjs`.
+The example exercises an allowed tool, a denied call, replay without another
+dispatch, and a receipt included in a verified audit. It uses two credentials
+in one process and no model inference or external service.
 
 Task-bound delegation requires the current parent claim token; pass it as the
 third argument to `client.submit(input, key, claimToken)`, or use the worker's

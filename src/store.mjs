@@ -88,6 +88,7 @@ export class RuntimeStore {
       CREATE TABLE IF NOT EXISTS artifacts (task_id TEXT NOT NULL, generation INTEGER NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(task_id, generation, id));
       CREATE TABLE IF NOT EXISTS tool_calls (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, tool_id TEXT NOT NULL, body TEXT NOT NULL, result_bytes INTEGER NOT NULL DEFAULT 0, UNIQUE(task_id, tool_id));
       CREATE TABLE IF NOT EXISTS events (sequence INTEGER PRIMARY KEY, body TEXT NOT NULL, hash TEXT NOT NULL);
+      CREATE UNIQUE INDEX IF NOT EXISTS tool_intent_identity ON events(json_extract(body, '$.taskId'), json_extract(body, '$.detail.toolId')) WHERE json_extract(body, '$.type') = 'tool.started';
       CREATE INDEX IF NOT EXISTS tasks_recipient ON tasks(recipient);
       CREATE INDEX IF NOT EXISTS tasks_sender ON tasks(sender);`);
       this.db
@@ -802,7 +803,19 @@ export class RuntimeStore {
   }
   findToolCall(taskId, toolId) {
     const row = this.db.prepare('SELECT body FROM tool_calls WHERE task_id = ? AND tool_id = ?').get(taskId, toolId);
-    return row ? JSON.parse(row.body) : null;
+    const intent = this.db.prepare("SELECT body FROM events WHERE json_extract(body, '$.type') = 'tool.started' AND json_extract(body, '$.taskId') = ? AND json_extract(body, '$.detail.toolId') = ?").get(taskId, toolId);
+    must(Boolean(row) === Boolean(intent), 500, 'TOOL_STATE', 'Tool records and their durable intent disagree. Restore a verified backup.');
+    if (!row) return null;
+    const call = JSON.parse(row.body);
+    const event = JSON.parse(intent.body);
+    must(
+      call.id === event.detail.invocationId && call.taskId === taskId && call.toolId === toolId &&
+        call.actor === event.actor && call.generation === event.detail.generation &&
+        call.inputSha256 === event.detail.inputSha256 &&
+        (call.state !== 'returned' || digest(call.result) === call.resultSha256),
+      500, 'TOOL_STATE', 'Tool records and their durable intent disagree. Restore a verified backup.',
+    );
+    return call;
   }
   startToolCall(actor, task, toolId, inputSha256) {
     must(
@@ -844,6 +857,25 @@ export class RuntimeStore {
     const call = this.read('tool_calls', identifier(id, 'invocation ID'));
     must(call, 404, 'TOOL_CALL_NOT_FOUND', 'The invocation was not found.');
     return call;
+  }
+  reconcileToolCall(actor, id, input) {
+    const call = this.inspectToolCall(actor, id);
+    must(['started', 'uncertain'].includes(call.state), 409, 'TOOL_NOT_UNCERTAIN', 'Only an uncertain invocation can be reconciled.');
+    const { disposition, evidenceSha256 } = input;
+    must(['effect_observed', 'effect_not_observed'].includes(disposition) &&
+      typeof evidenceSha256 === 'string' && /^[a-f0-9]{64}$/.test(evidenceSha256),
+      400, 'INVALID_INPUT', 'Supply an observed disposition and a SHA-256 evidence digest.');
+    if (call.reconciliation) {
+      must(call.reconciliation.disposition === disposition && call.reconciliation.evidenceSha256 === evidenceSha256,
+        409, 'RECONCILIATION_CONFLICT', 'This invocation already has a different owner assertion.');
+      return { call, replayed: true };
+    }
+    call.reconciliation = { disposition, evidenceSha256, recordedAt: this.iso() };
+    return this.transaction(() => {
+      this.update('tool_calls', call);
+      this.event(actor, 'tool.reconciled', call.taskId, { invocationId: id, ...call.reconciliation });
+      return { call, replayed: false };
+    });
   }
   putArtifact(actor, taskId, id, input, claimToken) {
     const task = this.claimed(actor, taskId, claimToken);
