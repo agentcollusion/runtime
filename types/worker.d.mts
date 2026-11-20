@@ -1,5 +1,5 @@
 import type { RuntimeClient } from './client.mjs';
-import type { Artifact, ArtifactReference, JsonObject, JsonValue, RunningTask, Submission, TaskInput, TerminalTask, WaitOptions } from './contracts.mjs';
+import type { Artifact, ArtifactReference, JsonObject, JsonValue, RunningTask, Submission, TaskInput, TerminalTask, ToolCall, WaitOptions } from './contracts.mjs';
 
 export interface WorkerContext {
   task: RunningTask;
@@ -8,6 +8,7 @@ export interface WorkerContext {
   submit(input: Omit<TaskInput, 'authorityId'>, key?: string): Promise<Submission>;
   wait(id: string, options?: Omit<WaitOptions, 'signal'>): Promise<TerminalTask>;
   readArtifact(id: string, artifactId: string): Promise<Artifact>;
+  tool(id: string, value: JsonValue): Promise<ToolCall>;
 }
 
 export interface WorkerOptions {

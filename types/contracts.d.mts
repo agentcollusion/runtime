@@ -1,7 +1,46 @@
 export type JsonValue = string | number | boolean | null | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
-export type PermissionOperation = 'task.submit' | 'artifact.read' | 'artifact.write';
+export type PermissionOperation = 'task.submit' | 'artifact.read' | 'artifact.write' | 'tool.invoke';
 export type Permission = { operation: PermissionOperation; resource: string };
+
+export interface ToolContext {
+  readonly input: JsonValue;
+  readonly signal: AbortSignal;
+  readonly invocationId: string;
+  readonly taskId: string;
+  readonly agentId: string;
+  readonly generation: number;
+}
+
+export interface ToolDefinition {
+  /** 100–15000 ms. The abort signal is advisory for trusted handler code. */
+  readonly timeoutMs?: number;
+  run(context: ToolContext): JsonValue | Promise<JsonValue>;
+}
+
+export interface ToolObservation {
+  disposition: 'effect_observed' | 'effect_not_observed';
+  evidenceSha256: string;
+}
+
+interface ToolCallMetadata {
+  id: string;
+  taskId: string;
+  toolId: string;
+  actor: string;
+  generation: number;
+  inputSha256: string;
+  startedAt: string;
+  replayed: boolean;
+  reconciliation?: ToolObservation & { recordedAt: string };
+}
+
+export type ToolCall = ToolCallMetadata & (
+  | { state: 'running' }
+  | { state: 'returned'; result: JsonValue; resultSha256: string; finishedAt: string }
+  | { state: 'uncertain'; reason: 'timeout' | 'shutdown' | 'handler_error' | 'invalid_result' | 'result_capacity' | 'interrupted'; finishedAt?: string }
+  | { state: 'not_dispatched'; reason: 'lease_expired'; finishedAt: string }
+);
 
 /** Private configuration obtained from the runtime owner. Do not log or publish it. */
 export interface RuntimeConfig {
@@ -203,4 +242,28 @@ export interface VerifiedAuditExtension extends VerifiedEvidence {
 export interface VerifiedReceiptInAudit extends VerifiedEvidence {
   kind: 'receipt';
   auditHead: EvidenceHead;
+}
+
+export interface ArtifactCandidate {
+  id: string;
+  mediaType: string;
+  value: JsonValue;
+}
+
+export interface ArtifactEvidenceOptions {
+  audit?: unknown;
+  checkpoint?: unknown;
+}
+
+export interface VerifiedReceiptArtifact {
+  valid: true;
+  kind: 'artifact';
+  runtimeId: string;
+  fingerprint: string;
+  taskId: string;
+  id: string;
+  mediaType: string;
+  sha256: string;
+  head: EvidenceHead;
+  auditHead?: EvidenceHead;
 }

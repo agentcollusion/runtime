@@ -11,6 +11,7 @@ import {
   digest,
   verifyAuditExtension,
   verifyEvidence,
+  verifyReceiptArtifact,
   verifyReceiptInAudit,
 } from '../src/evidence.mjs';
 import { runWorker } from '../src/worker.mjs';
@@ -511,6 +512,52 @@ void test('retained checkpoints reject owner-signed rollback and forks; receipt 
   await writeFile(file('oversized'), '{}');
   await truncate(file('oversized'), 128 * 1024 * 1024 + 1);
   await assert.rejects(run('verify', file('oversized'), '--fingerprint', key), /at most 134217728 bytes/);
+});
+
+void test('a signed terminal receipt verifies exact text and canonical JSON artifact values', async (t) => {
+  const f = await fixture(t);
+  const key = f.host.store.keyFingerprint;
+  const checkpoint = createAuditCheckpoint(await f.owner.audit(), key);
+  const input = { ...f.input, permissions: [...f.scope, { operation: 'artifact.write', resource: 'details' }] };
+  const { task } = await f.owner.submit(input, 'offline-artifact-proof');
+  const { claimToken } = await f.bob.claim(task.id);
+  const value = '\uFEFFReview passed.\r\n';
+  const published = await f.bob.putArtifact(task.id, 'report', value, claimToken, 'text/plain');
+  await f.bob.putArtifact(task.id, 'details', { second: 2, first: 1 }, claimToken);
+  await f.bob.complete(task.id, { delivered: true }, claimToken);
+  const receipt = await f.owner.receipt(task.id), audit = await f.owner.audit();
+  const artifact = { id: 'report', mediaType: 'text/plain', value };
+  const proof = verifyReceiptArtifact(receipt, key, artifact, { audit, checkpoint });
+  assert.equal(proof.sha256, published.sha256);
+  assert.equal(proof.taskId, task.id);
+  assert.deepEqual(proof.auditHead, audit.payload.head);
+  assert.equal(verifyReceiptArtifact(receipt, key, { id: 'details', mediaType: 'application/json', value: { first: 1, second: 2 } }).valid, true);
+  assert.throws(() => verifyReceiptArtifact(receipt, key, { ...artifact, value: value.replace('\r\n', '\n') }), /does not match/);
+  assert.throws(() => verifyReceiptArtifact(receipt, key, { ...artifact, mediaType: 'text/markdown' }), /does not match/);
+  assert.throws(() => verifyReceiptArtifact(receipt, key, { ...artifact, id: 'missing' }), /one valid digest/);
+  assert.throws(() => verifyReceiptArtifact(receipt, key, artifact, { checkpoint }), /needs its signed audit/);
+
+  const next = await f.owner.submit(input, 'cancelled-artifact-proof');
+  const claim = await f.bob.claim(next.task.id);
+  await f.bob.putArtifact(next.task.id, 'report', value, claim.claimToken, 'text/plain');
+  await f.owner.cancel(next.task.id);
+  const cancelled = await f.owner.receipt(next.task.id);
+  assert.throws(() => verifyReceiptArtifact(cancelled, key, artifact), /completed or failed event/);
+
+  const failed = await f.owner.submit(input, 'failed-artifact-proof');
+  const failedClaim = await f.bob.claim(failed.task.id);
+  await f.bob.putArtifact(failed.task.id, 'report', value, failedClaim.claimToken, 'text/plain');
+  await f.bob.fail(failed.task.id, { reason: 'fixture_failure' }, failedClaim.claimToken);
+  const failedReceipt = await f.owner.receipt(failed.task.id);
+  assert.equal(verifyReceiptArtifact(failedReceipt, key, artifact).sha256, published.sha256);
+
+  const cli = fileURLToPath(new URL('../bin/agentcollusion.mjs', import.meta.url));
+  const paths = Object.fromEntries(['receipt.json', 'audit.json', 'checkpoint.json', 'report.txt'].map(name => [name, path.join(f.directory, name)]));
+  for (const [name, json] of [['receipt.json', receipt], ['audit.json', audit], ['checkpoint.json', checkpoint]])
+    await writeFile(paths[name], JSON.stringify(json));
+  await writeFile(paths['report.txt'], value, 'utf8');
+  const result = await promisify(execFile)(process.execPath, [cli, 'verify-artifact', paths['receipt.json'], 'report', '--file', paths['report.txt'], '--fingerprint', key, '--audit', paths['audit.json'], '--checkpoint', paths['checkpoint.json']], { timeout: 15000 });
+  assert.deepEqual(JSON.parse(result.stdout), proof);
 });
 
 void test('one host holds the directory lock and persisted state survives a restart', async (t) => {

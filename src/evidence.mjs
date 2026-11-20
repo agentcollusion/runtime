@@ -3,7 +3,7 @@ import { createHash, createPublicKey, sign, verify } from 'node:crypto';
 const GENESIS_HASH = '0'.repeat(64);
 const CHECKPOINT_FORMAT = 'agentcollusion-audit-checkpoint/v1';
 const isSha256 = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const isRuntimeId = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+const isPortableId = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 const projectHead = ({ sequence, hash }) => ({ sequence, hash });
 
 // Sorted, restricted JSON, used identically by the host and offline verifier.
@@ -141,7 +141,7 @@ function verifyAudit(envelope, trustedFingerprint) {
 /** Retain this separately from future audit exports, under the verifier's control. */
 export function createAuditCheckpoint(envelope, trustedFingerprint) {
   const { runtimeId, fingerprint, head } = verifyAudit(envelope, trustedFingerprint);
-  if (!isRuntimeId(runtimeId)) throw new Error('The runtime ID cannot be represented in a portable checkpoint.');
+  if (!isPortableId(runtimeId)) throw new Error('The runtime ID cannot be represented in a portable checkpoint.');
   return { format: CHECKPOINT_FORMAT, runtimeId, fingerprint, head };
 }
 
@@ -153,7 +153,7 @@ function verifyPriorHead(audit, verified, checkpoint) {
   const head = checkpoint?.head;
   if (
     checkpoint?.format !== CHECKPOINT_FORMAT ||
-    !isRuntimeId(checkpoint.runtimeId) ||
+    !isPortableId(checkpoint.runtimeId) ||
     !isSha256(checkpoint.fingerprint) ||
     !Number.isSafeInteger(head?.sequence) || head.sequence < 0 ||
     !isSha256(head.hash) || (head.sequence === 0 && head.hash !== GENESIS_HASH)
@@ -187,4 +187,32 @@ export function verifyReceiptInAudit(receipt, audit, trustedFingerprint, checkpo
   )
     throw new Error('The receipt terminal event is absent from this audit.');
   return { ...verified, kind: 'receipt', auditHead: verifiedAudit.head };
+}
+
+/** Match a candidate artifact value and exact media type to a signed receipt. */
+export function verifyReceiptArtifact(receipt, trustedFingerprint, artifact, { audit, checkpoint } = {}) {
+  if (checkpoint !== undefined && audit === undefined)
+    throw new Error('A retained checkpoint needs its signed audit export.');
+  const verified = audit === undefined
+    ? verifyEvidence(receipt, trustedFingerprint)
+    : verifyReceiptInAudit(receipt, audit, trustedFingerprint, checkpoint);
+  if (verified.kind !== 'receipt') throw new Error('Artifact verification needs a signed receipt.');
+  const task = receipt.payload.task;
+  if (!['completed', 'failed'].includes(task.state))
+    throw new Error('This receipt does not bind artifact digests to a completed or failed event.');
+  if (!isPortableId(task.id) || !isPortableId(artifact?.id) || typeof artifact.mediaType !== 'string' ||
+      !artifact.mediaType || artifact.mediaType.length > 128 || /[\u0000-\u001f\u007f]/.test(artifact.mediaType) ||
+      !Object.hasOwn(artifact, 'value')) throw new Error('Provide an artifact ID, exact media type and JSON value.');
+  const matches = Array.isArray(task.artifacts) ? task.artifacts.filter(item => item?.id === artifact.id) : [];
+  if (matches.length !== 1 || !isSha256(matches[0].sha256))
+    throw new Error('The receipt does not contain one valid digest for this artifact.');
+  if (Buffer.byteLength(canonical(artifact.value)) > 256 * 1024)
+    throw new Error('The canonical artifact value exceeds 256 KiB.');
+  const sha256 = digest({ mediaType: artifact.mediaType, value: artifact.value });
+  if (sha256 !== matches[0].sha256) throw new Error('The artifact value or media type does not match the receipt.');
+  return {
+    valid: true, kind: 'artifact', runtimeId: verified.runtimeId, fingerprint: verified.fingerprint,
+    taskId: task.id, id: artifact.id, mediaType: artifact.mediaType, sha256, head: verified.head,
+    ...('auditHead' in verified ? { auditHead: verified.auditHead } : {}),
+  };
 }

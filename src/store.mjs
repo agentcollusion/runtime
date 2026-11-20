@@ -86,7 +86,9 @@ export class RuntimeStore {
       CREATE TABLE IF NOT EXISTS grants (id TEXT PRIMARY KEY, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, sender TEXT NOT NULL, recipient TEXT NOT NULL, idem TEXT NOT NULL, request_hash TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(sender, idem));
       CREATE TABLE IF NOT EXISTS artifacts (task_id TEXT NOT NULL, generation INTEGER NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(task_id, generation, id));
+      CREATE TABLE IF NOT EXISTS tool_calls (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, tool_id TEXT NOT NULL, body TEXT NOT NULL, result_bytes INTEGER NOT NULL DEFAULT 0, UNIQUE(task_id, tool_id));
       CREATE TABLE IF NOT EXISTS events (sequence INTEGER PRIMARY KEY, body TEXT NOT NULL, hash TEXT NOT NULL);
+      CREATE UNIQUE INDEX IF NOT EXISTS tool_intent_identity ON events(json_extract(body, '$.taskId'), json_extract(body, '$.detail.toolId')) WHERE json_extract(body, '$.type') = 'tool.started';
       CREATE INDEX IF NOT EXISTS tasks_recipient ON tasks(recipient);
       CREATE INDEX IF NOT EXISTS tasks_sender ON tasks(sender);`);
       this.db
@@ -791,6 +793,88 @@ export class RuntimeStore {
         leaseUntil: task.leaseUntil,
       });
       return this.viewTask(task);
+    });
+  }
+  toolContext(actor, taskId, toolId, claimToken) {
+    const task = this.claimed(actor, taskId, claimToken);
+    identifier(toolId, 'tool ID');
+    must(allows(task.permissions, 'tool.invoke', toolId), 403, 'SCOPE_DENIED', 'Tool invocation is outside the task grant.');
+    return task;
+  }
+  findToolCall(taskId, toolId) {
+    const row = this.db.prepare('SELECT body FROM tool_calls WHERE task_id = ? AND tool_id = ?').get(taskId, toolId);
+    const intent = this.db.prepare("SELECT body FROM events WHERE json_extract(body, '$.type') = 'tool.started' AND json_extract(body, '$.taskId') = ? AND json_extract(body, '$.detail.toolId') = ?").get(taskId, toolId);
+    must(Boolean(row) === Boolean(intent), 500, 'TOOL_STATE', 'Tool records and their durable intent disagree. Restore a verified backup.');
+    if (!row) return null;
+    const call = JSON.parse(row.body);
+    const event = JSON.parse(intent.body);
+    must(
+      call.id === event.detail.invocationId && call.taskId === taskId && call.toolId === toolId &&
+        call.actor === event.actor && call.generation === event.detail.generation &&
+        call.inputSha256 === event.detail.inputSha256 &&
+        (call.state !== 'returned' || digest(call.result) === call.resultSha256),
+      500, 'TOOL_STATE', 'Tool records and their durable intent disagree. Restore a verified backup.',
+    );
+    return call;
+  }
+  startToolCall(actor, task, toolId, inputSha256) {
+    must(
+      this.db.prepare('SELECT COUNT(*) AS count FROM tool_calls').get().count < 2048,
+      507, 'TOOL_CAPACITY', 'This runtime stores at most 2048 tool invocations.',
+    );
+    const call = {
+      id: randomUUID(), taskId: task.id, toolId, actor, generation: task.generation,
+      inputSha256, state: 'started', startedAt: this.iso(),
+    };
+    return this.transaction(() => {
+      this.db.prepare('INSERT INTO tool_calls (id, task_id, tool_id, body) VALUES (?, ?, ?, ?)')
+        .run(call.id, call.taskId, call.toolId, canonical(call));
+      this.event(actor, 'tool.started', task.id, { invocationId: call.id, toolId, generation: call.generation, inputSha256 });
+      return call;
+    });
+  }
+  settleToolCall(call, outcome) {
+    let bytes = outcome.state === 'returned' ? Buffer.byteLength(canonical(outcome.result)) : 0;
+    if (bytes && this.db.prepare('SELECT COALESCE(SUM(result_bytes), 0) AS bytes FROM tool_calls').get().bytes + bytes > 8 * 1024 * 1024) {
+      outcome = { state: 'uncertain', reason: 'result_capacity' };
+      bytes = 0;
+    }
+    const settled = { ...call, ...outcome, finishedAt: this.iso() };
+    if (outcome.state === 'returned') settled.resultSha256 = digest(outcome.result);
+    return this.transaction(() => {
+      const update = this.db.prepare("UPDATE tool_calls SET body = ?, result_bytes = ? WHERE id = ? AND json_extract(body, '$.state') = 'started'")
+        .run(canonical(settled), bytes, call.id);
+      must(update.changes === 1, 500, 'TOOL_STATE', 'The started tool call cannot be settled.');
+      this.event('@runtime', `tool.${outcome.state}`, call.taskId, {
+        invocationId: call.id, toolId: call.toolId, caller: call.actor, generation: call.generation,
+        ...(outcome.state === 'returned' ? { resultSha256: settled.resultSha256 } : { reason: outcome.reason }),
+      });
+      return settled;
+    });
+  }
+  inspectToolCall(actor, id) {
+    this.owner(actor);
+    const call = this.read('tool_calls', identifier(id, 'invocation ID'));
+    must(call, 404, 'TOOL_CALL_NOT_FOUND', 'The invocation was not found.');
+    return call;
+  }
+  reconcileToolCall(actor, id, input) {
+    const call = this.inspectToolCall(actor, id);
+    must(['started', 'uncertain'].includes(call.state), 409, 'TOOL_NOT_UNCERTAIN', 'Only an uncertain invocation can be reconciled.');
+    const { disposition, evidenceSha256 } = input;
+    must(['effect_observed', 'effect_not_observed'].includes(disposition) &&
+      typeof evidenceSha256 === 'string' && /^[a-f0-9]{64}$/.test(evidenceSha256),
+      400, 'INVALID_INPUT', 'Supply an observed disposition and a SHA-256 evidence digest.');
+    if (call.reconciliation) {
+      must(call.reconciliation.disposition === disposition && call.reconciliation.evidenceSha256 === evidenceSha256,
+        409, 'RECONCILIATION_CONFLICT', 'This invocation already has a different owner assertion.');
+      return { call, replayed: true };
+    }
+    call.reconciliation = { disposition, evidenceSha256, recordedAt: this.iso() };
+    return this.transaction(() => {
+      this.update('tool_calls', call);
+      this.event(actor, 'tool.reconciled', call.taskId, { invocationId: id, ...call.reconciliation });
+      return { call, replayed: false };
     });
   }
   putArtifact(actor, taskId, id, input, claimToken) {

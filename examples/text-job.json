@@ -1,0 +1,22 @@
+{
+  "format": "agentcollusion.text-job/v1",
+  "title": "Write a customer handoff guide",
+  "instructions": "Write a short Markdown guide for an engineer receiving this local prototype. Use only the facts in context. Include how to start, the expected output, how to stop, and the current limits. Do not claim a public release or customer adoption.",
+  "context": {
+    "name": "Example handoff prototype",
+    "startCommand": "npm run demo",
+    "output": "A release-notes.md file and signed receipt/audit exports",
+    "stop": "The demo stops its host after the handoff; Ctrl+C cancels a manual run",
+    "limits": [
+      "The starter demo uses deterministic adapters without model inference",
+      "Runtime permissions apply to its APIs and do not sandbox outside tools",
+      "A signed receipt does not prove the result is true"
+    ]
+  },
+  "acceptanceCriteria": [
+    "Include the exact start command npm run demo",
+    "Describe the release-notes.md output and signed evidence exports",
+    "Explain the stop behavior and all three supplied limits; describe API permissions without calling the runtime a process sandbox",
+    "Keep the guide under 250 words and invent no release or adoption claims"
+  ]
+}

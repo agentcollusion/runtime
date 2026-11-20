@@ -1,20 +1,36 @@
 // Compile only: this consumer exercises the package's exported type conditions.
 import { ClientError, RuntimeClient, type RuntimeConfig, type TaskInput } from '@agentcollusion/runtime';
 import { createRuntime } from '@agentcollusion/runtime/server';
-import { canonical, createAuditCheckpoint, digest, signedEnvelope, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '@agentcollusion/runtime/evidence';
+import { canonical, createAuditCheckpoint, digest, signedEnvelope, verifyAuditExtension, verifyEvidence, verifyReceiptArtifact, verifyReceiptInAudit } from '@agentcollusion/runtime/evidence';
 import { runWorker } from '@agentcollusion/runtime/worker';
+import { createA2ASendTool } from '@agentcollusion/runtime/a2a';
+import { inspectAuditTrace } from '@agentcollusion/runtime/trace';
+import { runTextJob, type TextJob } from '@agentcollusion/runtime/jobs';
+
+const customerJob = {format:'agentcollusion.text-job/v1',title:'Guide',instructions:'Write a guide',
+  context:{facts:['Local runtime']},acceptanceCriteria:['Use only supplied facts']} satisfies TextJob;
+const customerRun = await runTextJob({job:customerJob,writer:{provider:'codex'},reviewer:{provider:'claude'},maxRevisions:1});
+customerRun.fingerprint.toLowerCase();
+// @ts-expect-error Providers must be explicitly supported CLI adapters.
+await runTextJob({job:customerJob,writer:{provider:'invented'},reviewer:{provider:'claude'}});
 
 declare const recipientConfig: RuntimeConfig;
 declare const trustedFingerprint: string;
 declare const fixturePrivateKeyPem: string;
 const recipient = new RuntimeClient(recipientConfig);
-const host = await createRuntime({ port: 0 });
+const host = await createRuntime({ port: 0, tools: {
+  'send-review': createA2ASendTool({ endpoint: 'https://example.invalid/rpc' }),
+  'check-manifest': { run: ({ input, signal }) => {
+    signal.throwIfAborted();
+    return { inputType: typeof input };
+  } },
+} });
 const owner = new RuntimeClient({ url: host.url, ca: host.certificate, token: host.store.identity.token });
 const input = {
   to: 'writer',
   title: 'Draft notes',
   input: { changes: ['Scoped handoffs'] },
-  permissions: [{ operation: 'artifact.write', resource: 'draft' }],
+  permissions: [{ operation: 'artifact.write', resource: 'draft' }, { operation: 'tool.invoke', resource: 'check-manifest' }],
   requiredArtifacts: ['draft'],
   expiresAt: new Date(Date.now() + 600000).toISOString(),
 } as const satisfies TaskInput;
@@ -26,8 +42,10 @@ const controller = new AbortController();
 const worker = runWorker({
   client: recipient,
   signal: controller.signal,
-  async handle({ task: running, signal, artifact }) {
+  async handle({ task: running, signal, artifact, tool }) {
     signal.throwIfAborted();
+    const checked = await tool('check-manifest', running.input);
+    if (checked.state !== 'returned') throw new Error(`Tool ended ${checked.state}`);
     const ref = await artifact('draft', { from: running.from, input: running.input });
     return { artifactId: ref.id, digest: ref.sha256 };
   },
@@ -50,6 +68,10 @@ signedEnvelope(audit.payload, fixturePrivateKeyPem, audit.publicKey).payload.eve
 const checkpoint = createAuditCheckpoint(audit, trustedFingerprint);
 verifyAuditExtension(audit, trustedFingerprint, checkpoint).advanced.valueOf();
 verifyReceiptInAudit(receipt, audit, trustedFingerprint, checkpoint).auditHead.hash.toLowerCase();
+verifyReceiptArtifact(receipt, trustedFingerprint, artifact, { audit, checkpoint }).sha256.toLowerCase();
+const trace = inspectAuditTrace(audit, { trustedFingerprint, checkpoint, taskId: task.id, limit: 20 });
+trace.selection.nextAfterSequence?.toFixed();
+trace.events[0]?.actor?.toUpperCase();
 controller.abort();
 await worker;
 await host.close();

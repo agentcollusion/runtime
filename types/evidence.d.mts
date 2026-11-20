@@ -1,6 +1,6 @@
-import type { AuditCheckpoint, EvidenceEnvelope, EvidencePayload, JsonValue, VerifiedAuditExtension, VerifiedEvidence, VerifiedReceiptInAudit } from './contracts.mjs';
+import type { ArtifactCandidate, ArtifactEvidenceOptions, AuditCheckpoint, EvidenceEnvelope, EvidencePayload, JsonValue, VerifiedAuditExtension, VerifiedEvidence, VerifiedReceiptArtifact, VerifiedReceiptInAudit } from './contracts.mjs';
 
-export type { AuditCheckpoint, AuditEvent, AuditPayload, EvidenceEnvelope, EvidenceHead, EvidencePayload, ReceiptPayload, VerifiedAuditExtension, VerifiedEvidence, VerifiedReceiptInAudit } from './contracts.mjs';
+export type { ArtifactCandidate, ArtifactEvidenceOptions, AuditCheckpoint, AuditEvent, AuditPayload, EvidenceEnvelope, EvidenceHead, EvidencePayload, ReceiptPayload, VerifiedAuditExtension, VerifiedEvidence, VerifiedReceiptArtifact, VerifiedReceiptInAudit } from './contracts.mjs';
 
 type CanonicalInput = JsonValue | EvidencePayload;
 export function canonical(value: CanonicalInput, depth?: number): string;
@@ -16,3 +16,5 @@ export function createAuditCheckpoint(envelope: unknown, trustedFingerprint: str
 export function verifyAuditExtension(audit: unknown, trustedFingerprint: string, checkpoint: unknown): VerifiedAuditExtension;
 /** Confirm a receipt's terminal event exists in the signed audit. */
 export function verifyReceiptInAudit(receipt: unknown, audit: unknown, trustedFingerprint: string, checkpoint?: unknown): VerifiedReceiptInAudit;
+/** Verify a value and exact media type against an artifact digest in a signed receipt. */
+export function verifyReceiptArtifact(receipt: unknown, trustedFingerprint: string, artifact: ArtifactCandidate, options?: ArtifactEvidenceOptions): VerifiedReceiptArtifact;

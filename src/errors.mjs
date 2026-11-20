@@ -54,7 +54,7 @@ export function permissions(value) {
   const normalized = value.map((p) => {
     requireCondition(
       p &&
-        ['task.submit', 'artifact.read', 'artifact.write'].includes(
+        ['task.submit', 'artifact.read', 'artifact.write', 'tool.invoke'].includes(
           p.operation,
         ),
       400,

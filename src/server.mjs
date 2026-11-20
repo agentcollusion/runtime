@@ -6,8 +6,9 @@ import selfsigned from 'selfsigned';
 import { createSecureContext } from 'node:tls';
 import { X509Certificate } from 'node:crypto';
 import { RuntimeStore } from './store.mjs';
+import { ToolRunner } from './tool-runner.mjs';
 import { RuntimeError, requireCondition as must } from './errors.mjs';
-import { canonical } from './evidence.mjs';
+import { canonical, digest } from './evidence.mjs';
 import { prepareDirectory, writePrivateJson } from './security.mjs';
 
 async function readJson(request) {
@@ -58,10 +59,18 @@ async function readJson(request) {
   return value;
 }
 
+function toolCallView(call, runner, replayed) {
+  if (call.state !== 'started') return { ...call, replayed };
+  return runner.running(call.id)
+    ? { ...call, state: 'running', replayed }
+    : { ...call, state: 'uncertain', reason: 'interrupted', replayed };
+}
+
 export async function createRuntime({
   directory = '.agentcollusion',
   port = 4318,
   now,
+  tools,
 } = {}) {
   must(
     Number.isSafeInteger(port) && port >= 0 && port <= 65535,
@@ -69,6 +78,7 @@ export async function createRuntime({
     'INVALID_PORT',
     'port must be 0–65535.',
   );
+  const toolRunner = new ToolRunner(tools);
   const absoluteDirectory = prepareDirectory(directory);
   const hadStore = existsSync(path.join(absoluteDirectory, 'runtime.sqlite'));
   const store = new RuntimeStore(absoluteDirectory, { now });
@@ -177,7 +187,7 @@ export async function createRuntime({
         if (
           !(
             method === 'GET' &&
-            (['audit', 'info'].includes(resource) || action === 'receipt')
+            (['audit', 'info', 'tool-calls'].includes(resource) || action === 'receipt')
           )
         )
           store.sweep();
@@ -327,6 +337,50 @@ export async function createRuntime({
         ) {
           value = store.getArtifact(actor, id, artifactId);
         } else if (
+          resource === 'tasks' && segments.length === 5 &&
+          action === 'tools' && method === 'POST'
+        ) {
+          const claimToken = request.headers['x-claim-token'];
+          const task = store.toolContext(actor, id, artifactId, claimToken);
+          must(Object.hasOwn(input, 'value'), 400, 'INVALID_INPUT', 'A tool argument value is required.');
+          must(Buffer.byteLength(canonical(input.value)) <= 65536, 413, 'VALUE_TOO_LARGE', 'Tool input exceeds 65536 bytes.');
+          const inputSha256 = digest(input.value);
+          const previous = store.findToolCall(task.id, artifactId);
+          if (previous) {
+            must(previous.inputSha256 === inputSha256, 409, 'TOOL_INPUT_CONFLICT', 'A tool invocation already exists with different input.');
+            value = toolCallView(previous, toolRunner, true);
+          } else {
+            const tool = toolRunner.resolve(artifactId);
+            const call = store.startToolCall(actor, task, artifactId, inputSha256);
+            const remainingLeaseMs = Date.parse(task.leaseUntil) - store.now();
+            const outcome = remainingLeaseMs <= 0
+              ? { state: 'not_dispatched', reason: 'lease_expired' }
+              : await toolRunner.run(tool, call, input.value, remainingLeaseMs);
+            let settled;
+            try {
+              settled = store.settleToolCall(call, outcome);
+            } catch {
+              throw new RuntimeError(503, 'TOOL_OUTCOME_UNRECORDED', 'The tool was started, but its outcome could not be recorded. Inspect the invocation before authorizing new work.');
+            }
+            // An already dispatched handler may finish despite revocation. Keep
+            // the evidence, but do not release a result to an expired claim.
+            actor = store.authenticate(auth?.[1]);
+            store.toolContext(actor, id, artifactId, claimToken);
+            value = toolCallView(settled, toolRunner, false);
+            status = 201;
+          }
+        } else if (
+          resource === 'tool-calls' && segments.length === 3 && method === 'GET'
+        ) {
+          value = toolCallView(store.inspectToolCall(actor, id), toolRunner, true);
+        } else if (
+          resource === 'tool-calls' && segments.length === 4 && action === 'reconcile' && method === 'POST'
+        ) {
+          store.owner(actor);
+          must(!toolRunner.running(id), 409, 'TOOL_STILL_RUNNING', 'Wait for the handler to settle before recording an observation.');
+          const { call, replayed } = store.reconcileToolCall(actor, id, input);
+          value = toolCallView(call, toolRunner, replayed);
+        } else if (
           resource === 'audit' &&
           segments.length === 2 &&
           method === 'GET'
@@ -385,6 +439,7 @@ export async function createRuntime({
     certificate: tls.cert,
     store,
     async close() {
+      toolRunner.close();
       await new Promise((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );

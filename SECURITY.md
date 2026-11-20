@@ -21,6 +21,22 @@ stale workers. Each attempt has separate immutable artifacts; only the current
 attempt counts toward completion. Artifacts are SQLite values, not paths. The
 host executes no task-supplied shell command or network request.
 
+An owner may register trusted JavaScript tool handlers at host startup. A tool
+call requires the exact `tool.invoke` permission and a current live claim. Only
+that named handler receives the supplied JSON. The handler must validate it and
+enforce its own file, network and effect restrictions. The runtime records the
+intent before dispatch and will not dispatch again for the same task and tool
+in the retained store, even after claim recovery or restart. The tool's abort
+signal is advisory; revocation cannot undo an already dispatched action. The
+host rechecks the credential and claim before releasing a handler result.
+
+The optional A2A tool sends only the supplied bounded text to a fixed,
+owner-configured endpoint. It uses standard HTTPS validation, rejects redirects,
+caps the response at 64 KiB and never fetches artifact URLs. The adapter never
+receives the Runtime credential; configure a separate peer credential. The
+endpoint is an operator trust decision. Agent Card discovery, Card signature
+verification, and authorization at the peer are outside this adapter.
+
 Recipients need live authority for full task-body reads. Expired, revoked or
 terminal work retains content-free task summaries and signed receipts for its
 participants. The owner and sender retain archive access; already copied data
@@ -51,10 +67,36 @@ data; they do not expand the receiver's external tool permissions. Real provider
 adapters need their own tool boundary. The deterministic demo uses no model tools.
 A completion means the authenticated recipient reported completion and supplied
 required artifacts. It does not prove artifact truth, successful external actions,
-legal identity, financial settlement, or safety. This custom transport is not an
-A2A or MCP implementation and does not claim their compatibility or compliance.
+legal identity, financial settlement, or safety. The local Runtime protocol
+remains custom; the optional outbound A2A tool supports one tested JSON-RPC
+operation. There is no MCP implementation.
 
 ## Evidence and privacy
+
+The optional text-job runner launches the operator-selected Codex/Claude native
+CLI without a shell. Job text is sent on stdin; it cannot select an executable,
+override flags, read a runtime credential, or become a shell argument. Each
+worker receives only its own runtime token. Text-generation calls use temporary
+private working directories, bounded output, a deadline, and explicit
+tool-disabled CLI options. Unsupported flags fail closed. There is no bypass
+permission mode or automatic fallback. The CLI and any administrator-managed
+configuration remain trusted components; this is not an OS sandbox.
+
+The runner's total deadline and SIGINT/SIGTERM handling stop only child processes
+it started. On POSIX the worker receives a termination signal before forced
+group termination so it can cancel its separately grouped provider process.
+Windows cleanup targets the spawned PID and its descendants. This is lifecycle
+management for cooperating processes, not containment of hostile programs.
+
+Job context and drafts may contain private information or prompt injection. The
+selected model providers receive that content through their authenticated CLIs.
+The runner does not copy CLI transcripts, stderr or provider credentials into
+the shared evidence. `private/` retains runtime state and worker configurations;
+the entire new job directory is restricted to its creator. Exported text can
+still contain whatever the selected model generated. A review verdict is a
+model's report, not an independent security decision or proof of truth. No
+email, purchase, repository write or other external action is part of this
+text workflow.
 
 Audits contain runtime/actor/task IDs, timestamps, grants/scopes, recipients,
 deadlines, claim generations, input/result digests, artifact IDs/digests and denial
@@ -83,6 +125,24 @@ to allow legacy indented audit exports. The `audit` command writes compact JSON.
 Checkpoint reads are capped at 4 KiB. A checkpoint records its format, a portable
 runtime ID, the key fingerprint, and the audit head's sequence and hash.
 
+`trace` checks the full signed audit, then projects selected metadata and digests
+into an unsigned report of at most 500 events. The original audit is required
+for independent verification. Task, actor and tool identifiers can be sensitive;
+review the report before sharing it.
+
+Artifact verification compares the candidate's canonical value and exact media
+type with a digest bound to a completed or failed event. It rejects cancelled
+receipts and requires an audit if a checkpoint is supplied. The check uses no
+network access. It does not verify an artifact's truth or external origin.
+
+Tool audits include the invocation ID, task, tool, claim generation, caller and
+argument/result digests. Raw arguments are not stored in the invocation record;
+bounded return values can be stored privately for replay. A handler return is
+not proof of an external effect. An owner reconciliation stores an observation
+and evidence digest without changing the original outcome or enabling a retry.
+The host cannot verify external evidence. A different task or restored older
+database is outside the per-task deduplication guarantee.
+
 The host refuses to extend a damaged audit chain. The database itself is not
 tamper-proof. Back up a stopped runtime directory securely. Never publish the
 database, `owner.json`, `tls.json`, or client/claim files.
@@ -92,6 +152,9 @@ database, `owner.json`, `tls.json`, or client/claim files.
 Per store: 1000 identities, 10000 tasks, 1000 unfinished tasks globally, 100 per sender/recipient,
 32 scope pairs/required artifacts per task, 20 claims per task, 64 KiB input/result,
 256 KiB artifact values, 64 MiB total artifact values and 32 MiB/50000 audit events.
+Tool limits: 64 registered names, 16 in-flight handlers, 2048 retained calls,
+64 KiB each for canonical arguments and return values, and 8 MiB of stored
+returns. Handler deadlines are 100–15000 ms, bounded by the starting lease.
 Requests are bounded to 400000 bytes and JSON to 64 nesting levels. Leases last
 at most five minutes; root grants/tasks at most seven days. Peers can still consume
 their allowance. When full, export and retain the store, investigate, and

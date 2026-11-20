@@ -5,10 +5,14 @@ import path from 'node:path';
 import manifest from '../package.json' with { type: 'json' };
 import { RuntimeClient } from '../src/client.mjs';
 import { createRuntime } from '../src/server.mjs';
-import { createAuditCheckpoint, verifyAuditExtension, verifyEvidence, verifyReceiptInAudit } from '../src/evidence.mjs';
+import { createAuditCheckpoint, verifyAuditExtension, verifyEvidence, verifyReceiptArtifact, verifyReceiptInAudit } from '../src/evidence.mjs';
+import { inspectAuditTrace } from '../src/trace.mjs';
 import { protectPath, writePrivateJson, withPrivateJsonOutput } from '../src/security.mjs';
 import { identifier } from '../src/errors.mjs';
 import { runDemo } from '../examples/demo.mjs';
+import { runHarness } from '../examples/harness.mjs';
+import { runTextJob } from '../src/text-job.mjs';
+import { probeProvider } from '../src/providers.mjs';
 
 const help = `AgentCollusion Runtime ${manifest.version}
 
@@ -16,6 +20,11 @@ Connect independent agents. Keep scoped work, artifacts and receipts together.
 Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
 
   agentcollusion demo [--out NEW_DIRECTORY]
+  agentcollusion harness [--out NEW_DIRECTORY]
+  agentcollusion doctor --provider codex|claude [--executable NATIVE_CLI]
+  agentcollusion run --file JOB_JSON --writer codex|claude --reviewer codex|claude
+    [--out NEW_DIRECTORY] [--max-revisions 0|1|2] [--timeout-ms 10000..900000]
+    [--writer-executable NATIVE_CLI] [--reviewer-executable NATIVE_CLI]
   agentcollusion serve [--dir .agentcollusion] [--port 4318]
   agentcollusion info --config CLIENT_JSON
   agentcollusion agent add ID --config OWNER_JSON [--out NEW_CLIENT_JSON]
@@ -29,6 +38,9 @@ Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
   agentcollusion task heartbeat ID --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion artifact put TASK_ID ARTIFACT_ID --file FILE --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion artifact get TASK_ID ARTIFACT_ID --config CLIENT_JSON
+  agentcollusion tool call TASK_ID TOOL_ID --file INPUT_JSON --claim CLAIM_JSON --config CLIENT_JSON
+  agentcollusion tool inspect INVOCATION_ID --config OWNER_JSON
+  agentcollusion tool reconcile INVOCATION_ID --file OBSERVATION_JSON --config OWNER_JSON
   agentcollusion task complete ID --file RESULT_JSON --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion task fail ID --file RESULT_JSON --claim CLAIM_JSON --config CLIENT_JSON
   agentcollusion task cancel ID --config CLIENT_JSON
@@ -37,20 +49,25 @@ Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
   agentcollusion checkpoint AUDIT_FILE --out NEW_FILE --fingerprint TRUSTED_SHA256
   agentcollusion verify FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE]
   agentcollusion verify RECEIPT_FILE --audit AUDIT_FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE]
+  agentcollusion verify-artifact RECEIPT_FILE ARTIFACT_ID --file FILE --fingerprint TRUSTED_SHA256
+    [--format text|json] [--media-type EXACT_TYPE] [--audit AUDIT_FILE] [--checkpoint RETAINED_FILE]
+  agentcollusion trace AUDIT_FILE --fingerprint TRUSTED_SHA256 [--checkpoint RETAINED_FILE] [--task TASK_ID] [--after SEQUENCE] [--limit ROWS]
 
 Documentation: https://agentcollusion.ai/service/runtime
 Do not share credential files or owner.json. A runtime grant controls its APIs;
 it does not sandbox your agent's external tools or processes.
+The run command uses your authenticated provider CLIs for text generation.
+Provider usage limits and charges apply. See examples/text-job.json.
 `;
 
 // Legacy CLI exports indent every event. The 32 MiB on-disk audit cap does not
 // include that whitespace or each event's exported hash.
-async function readEvidenceJson(filename, limit = 128 * 1024 * 1024) {
+async function readBoundedUtf8(filename, limit) {
   const handle = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > limit)
-      throw new Error(`Expected a regular evidence file of at most ${limit} bytes.`);
+      throw new Error(`Expected a regular file of at most ${limit} bytes.`);
     const bytes = Buffer.allocUnsafe(stat.size + 1);
     let size = 0;
     while (size < bytes.length) {
@@ -58,11 +75,17 @@ async function readEvidenceJson(filename, limit = 128 * 1024 * 1024) {
       if (!bytesRead) break;
       size += bytesRead;
     }
-    if (size !== stat.size) throw new Error('Evidence file size changed while reading.');
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, size)));
+    if (size !== stat.size) throw new Error('File size changed while reading.');
+    // Preserve a text artifact's UTF-8 BOM because it is part of its value.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, size));
   } finally {
     await handle.close();
   }
+}
+
+async function readBoundedJson(filename, limit = 128 * 1024 * 1024) {
+  const source = await readBoundedUtf8(filename, limit);
+  return JSON.parse(source.replace(/^\uFEFF/, ''));
 }
 
 async function main() {
@@ -88,6 +111,13 @@ async function main() {
           'fingerprint',
           'checkpoint',
           'audit',
+          'task',
+          'after',
+          'limit',
+          'format',
+          'media-type',
+          'provider', 'executable', 'writer', 'reviewer', 'max-revisions',
+          'timeout-ms', 'writer-executable', 'reviewer-executable',
         ].includes(key) ||
         flags[key] !== undefined ||
         !args[i + 1] ||
@@ -117,26 +147,90 @@ async function main() {
     });
     console.log(`Saved ${path.resolve(file)}`);
   };
-  if (command === 'verify' || command === 'checkpoint') {
+  if (command === 'doctor' || command === 'run') {
+    const allowed=command==='doctor'?['provider','executable']:
+      ['file','writer','reviewer','out','max-revisions','timeout-ms','writer-executable','reviewer-executable'];
+    if(positionals.length!==1||Object.keys(flags).some(flag=>!allowed.includes(flag)))
+      throw new Error(`Unexpected option for ${command}. Use --help.`);
+    if(command==='doctor') {
+      print(await probeProvider({provider:need('provider'),command:flags.executable?[flags.executable]:undefined}));
+      return;
+    }
+    const integer=(name,fallback)=>{
+      if(flags[name]===undefined)return fallback;
+      if(!/^(0|[1-9]\d*)$/.test(flags[name]))throw new Error(`--${name} requires a decimal integer.`);
+      return Number(flags[name]);
+    };
+    const controller=new AbortController();
+    const stop=()=>controller.abort();
+    process.once('SIGINT',stop);process.once('SIGTERM',stop);
+    try {
+      const report=await runTextJob({job:await readBoundedJson(need('file'),30000),
+        writer:{provider:need('writer'),command:flags['writer-executable']?[flags['writer-executable']]:undefined},
+        reviewer:{provider:need('reviewer'),command:flags['reviewer-executable']?[flags['reviewer-executable']]:undefined},
+        directory:flags.out,signal:controller.signal,maxRevisions:integer('max-revisions',1),
+        timeoutMs:integer('timeout-ms',600000)});
+      print(report);
+      if(report.state!=='completed')process.exitCode=1;
+    } finally {process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop);}
+    return;
+  }
+  if(Object.keys(flags).some(flag=>['provider','executable','writer','reviewer','max-revisions','timeout-ms','writer-executable','reviewer-executable'].includes(flag)))
+    throw new Error('Provider options require doctor or run.');
+  if (command === 'verify-artifact') {
+    if (!action || !id || positionals.length !== 3) throw new Error('Specify the receipt file and artifact ID.');
+    const allowed = ['fingerprint', 'file', 'format', 'media-type', 'audit', 'checkpoint'];
+    if (Object.keys(flags).some(flag => !allowed.includes(flag))) throw new Error('Unexpected artifact verification option.');
+    if (flags.checkpoint && !flags.audit) throw new Error('--checkpoint requires --audit.');
+    const fingerprint = need('fingerprint');
+    const file = need('file');
+    const format = flags.format ?? (file.endsWith('.json') ? 'json' : 'text');
+    if (!['json', 'text'].includes(format)) throw new Error('--format must be text or json.');
+    const receipt = await readBoundedJson(action);
+    const audit = flags.audit === undefined ? undefined : await readBoundedJson(flags.audit);
+    const checkpoint = flags.checkpoint === undefined ? undefined : await readBoundedJson(flags.checkpoint, 4096);
+    const value = format === 'json' ? await readBoundedJson(file, 1024 * 1024) : await readBoundedUtf8(file, 256 * 1024);
+    const mediaType = flags['media-type'] ?? (format === 'json' ? 'application/json' : 'text/plain');
+    print(verifyReceiptArtifact(receipt, fingerprint, { id, mediaType, value }, { audit, checkpoint }));
+    return;
+  }
+  if (command === 'verify' || command === 'checkpoint' || command === 'trace') {
     if (!action || positionals.length !== 2) throw new Error('Specify exactly one evidence file.');
-    const allowed = command === 'verify' ? ['fingerprint', 'audit', 'checkpoint'] : ['fingerprint', 'out'];
+    const allowed = command === 'verify' ? ['fingerprint', 'audit', 'checkpoint'] : command === 'trace'
+      ? ['fingerprint', 'checkpoint', 'task', 'after', 'limit'] : ['fingerprint', 'out'];
     if (Object.keys(flags).some(flag => !allowed.includes(flag)))
       throw new Error(`Unexpected flag for ${command}. Use --help.`);
     const fingerprint = need('fingerprint');
-    const evidence = await readEvidenceJson(action);
+    const evidence = await readBoundedJson(action);
     if (command === 'checkpoint') {
       await save(need('out'), createAuditCheckpoint(evidence, fingerprint));
       return;
     }
-    const checkpoint = flags.checkpoint === undefined ? undefined : await readEvidenceJson(flags.checkpoint, 4096);
-    if (flags.audit) print(verifyReceiptInAudit(evidence, await readEvidenceJson(flags.audit), fingerprint, checkpoint));
+    const checkpoint = flags.checkpoint === undefined ? undefined : await readBoundedJson(flags.checkpoint, 4096);
+    if (command === 'trace') {
+      const integer = (name) => {
+        if (flags[name] === undefined) return undefined;
+        if (!/^(0|[1-9]\d*)$/.test(flags[name])) throw new Error(`--${name} requires a decimal integer.`);
+        return Number(flags[name]);
+      };
+      print(inspectAuditTrace(evidence, { trustedFingerprint: fingerprint, checkpoint, taskId: flags.task, afterSequence: integer('after'), limit: integer('limit') }));
+      return;
+    }
+    if (flags.audit) print(verifyReceiptInAudit(evidence, await readBoundedJson(flags.audit), fingerprint, checkpoint));
     else if (checkpoint !== undefined) print(verifyAuditExtension(evidence, fingerprint, checkpoint));
     else print(verifyEvidence(evidence, fingerprint));
     return;
   }
-  if (flags.checkpoint || flags.audit) throw new Error('--checkpoint and --audit are verify options.');
+  if (flags.checkpoint || flags.audit || flags.task || flags.after || flags.limit || flags.format || flags['media-type'])
+    throw new Error('Use evidence selection options with verify, verify-artifact or trace.');
   if (command === 'demo') {
     print(await runDemo({ directory: flags.out }));
+    return;
+  }
+  if (command === 'harness') {
+    if (positionals.length !== 1 || Object.keys(flags).some(flag => flag !== 'out'))
+      throw new Error('Use harness with only the optional --out NEW_DIRECTORY.');
+    print(await runHarness({ directory: flags.out }));
     return;
   }
   if (command === 'serve') {
@@ -282,6 +376,16 @@ async function main() {
     );
   } else if (command === 'artifact' && action === 'get')
     result = await client.artifact(id, artifactId);
+  else if (command === 'tool' && action === 'call') {
+    if (!id || !artifactId) throw new Error('Specify a task ID and tool ID.');
+    result = await client.invokeTool(id, artifactId, await readBoundedJson(need('file'), 256 * 1024), await claim());
+  } else if (command === 'tool' && action === 'inspect') {
+    if (!id || artifactId) throw new Error('Specify one invocation ID.');
+    result = await client.inspectTool(id);
+  } else if (command === 'tool' && action === 'reconcile') {
+    if (!id || artifactId) throw new Error('Specify one invocation ID.');
+    result = await client.reconcileTool(id, await readBoundedJson(need('file'), 4096));
+  }
   else if (command === 'audit') {
     await save(need('out'), await client.audit(), 0);
     return;
