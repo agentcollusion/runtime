@@ -1,4 +1,25 @@
-# Runtime 0.1.0-beta.7
+# Runtime 0.1.0-beta.8
+
+Run a real text job using your authenticated Codex and/or Claude CLIs. The new
+`agentcollusion run` command connects two separate workers through scoped
+runtime tasks, delegates a draft for review, allows a bounded revision, and
+exports only an accepted result as `result.md`. Review rejection, provider
+failure and cancellation do not report successful delivery.
+
+`agentcollusion doctor` checks native provider executable versions. A typed
+`@agentcollusion/runtime/jobs` entry point and `examples/text-job.json` are
+included. The provider choice is explicit; default models and existing logins
+remain with their CLI. Provider tools are disabled in this text workflow,
+there is no permission bypass, and task text travels through stdin only.
+
+The new output contains review history and independently replayable signed
+evidence. The runner verifies receipt inclusion and artifact digests before
+reporting completion, and stops its own workers and host. Keep `private/` out
+of shared material. Model review is not proof of truth; this local workflow
+does not isolate different owners or perform arbitrary external actions.
+
+This release also brings the previously local tool, recovery, A2A, trace and
+developer-harness changes below into the same distributable package.
 
 Run `agentcollusion harness` or select the guardrail task in VS Code. A local
 synthetic fixture exercises a delegated handoff, scope denial, expired claim,

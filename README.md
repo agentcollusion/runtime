@@ -33,6 +33,77 @@ This demo is a **deterministic transport harness**. It runs real processes and t
 real API, but no model inference. It demonstrates handoffs and enforcement, not
 intelligence, model safety, or production isolation.
 
+## Complete a job with your own agent CLIs
+
+`agentcollusion run` starts two separate local workers. One uses your chosen CLI
+to create a text artifact; the other receives the draft through the runtime and
+reviews it against your job's acceptance criteria. If needed, the writer revises
+it within the configured limit. Only an accepted result is exported as
+`result.md`. A failed review or cancelled job returns a nonzero exit status.
+
+Install and log into the provider CLIs you choose yourself. The adapters support
+Codex CLI and Claude Code; they use the CLI's default model, disable its tools for
+this text workflow, and do not bypass permission checks. Provider usage limits
+and charges apply. With one allowed revision, there are at most four generation
+calls: a draft, its review, a revised draft and its review. A job can involve two
+different providers or two independent processes using one provider.
+
+After installing the runtime in your project:
+
+```sh
+npm exec -- agentcollusion doctor --provider codex
+npm exec -- agentcollusion doctor --provider claude
+npm exec -- agentcollusion run --file node_modules/@agentcollusion/runtime/examples/text-job.json --writer codex --reviewer claude --out first-job
+```
+
+`doctor` checks the installed executable's version. It does not log in or prove
+that inference is available. On Windows use the native `codex.exe` or
+`claude.exe`; shell launchers are refused. Use `--writer-executable PATH` or
+`--reviewer-executable PATH` if the native executable is outside `PATH`.
+
+Copy [the example job](examples/text-job.json) to your own `job.json` and replace
+its title, instructions, context and acceptance criteria. It accepts up to
+30000 bytes of JSON with 1–12 criteria. The workflow produces one Markdown text
+artifact; it does not send email, change a repository, or perform other external
+actions. Its provider prompts implement this one entry workflow, while the
+runtime's client and worker APIs remain available for other agent loops.
+
+Successful output includes the result, review history, signed audit and receipt,
+an initial checkpoint, and the evidence-key fingerprint. The runner verifies
+receipt inclusion and the exported artifact digests before reporting completion.
+Model review does not prove that the content is true. Review the result before
+using it. The `private/` subdirectory contains the input, runtime database, keys
+and worker credentials; never share it. The entire output directory is private
+to the local account by default. Reusing an output directory is refused.
+
+The default total timeout is ten minutes; use `--timeout-ms 10000..900000` and
+`--max-revisions 0|1|2` to set limits. Ctrl+C cancels the task and stops this
+runner's workers and provider processes. There is no automatic restart of model
+calls after an uncertain interruption. Reconcile provider usage before starting
+a new job. A provider that lacks the required CLI flags fails rather than
+falling back to a less constrained mode.
+
+For JavaScript callers, use the typed `@agentcollusion/runtime/jobs` export:
+
+```js
+import { readFile } from 'node:fs/promises';
+import { runTextJob } from '@agentcollusion/runtime/jobs';
+
+const run = await runTextJob({
+  job: JSON.parse(await readFile('job.json', 'utf8')),
+  writer: { provider: 'codex' },
+  reviewer: { provider: 'claude' },
+  directory: 'first-job',
+  maxRevisions: 1,
+});
+if (run.state !== 'completed') throw new Error(`Job ended ${run.state}`);
+```
+
+This is a local workflow under one operator, not a cross-owner sandbox or
+unrestricted autonomous operation. Task content never chooses executable paths
+or process arguments. Any programmatic `command` override is trusted operator
+configuration and must not come from a task or peer artifact.
+
 ```sh
 node bin/agentcollusion.mjs verify PATH/receipt.json --fingerprint TRUSTED_SHA256
 node bin/agentcollusion.mjs verify PATH/audit.json --fingerprint TRUSTED_SHA256
@@ -112,10 +183,10 @@ provide process isolation.
 Install the versioned archive in your own project to use the SDK:
 
 ```sh
-npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.6/agentcollusion-runtime-0.1.0-beta.6.tgz
+npm install https://github.com/agentcollusion/runtime/releases/download/v0.1.0-beta.8/agentcollusion-runtime-0.1.0-beta.8.tgz
 ```
 
-The [beta.6 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.6)
+The [beta.8 GitHub release](https://github.com/agentcollusion/runtime/releases/tag/v0.1.0-beta.8)
 provides the archive, checksum and build metadata. The
 [product page](https://agentcollusion.ai/service/runtime) offers a one-command
 demo. This beta is distributed through GitHub Releases.

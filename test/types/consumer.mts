@@ -5,6 +5,14 @@ import { canonical, createAuditCheckpoint, digest, signedEnvelope, verifyAuditEx
 import { runWorker } from '@agentcollusion/runtime/worker';
 import { createA2ASendTool } from '@agentcollusion/runtime/a2a';
 import { inspectAuditTrace } from '@agentcollusion/runtime/trace';
+import { runTextJob, type TextJob } from '@agentcollusion/runtime/jobs';
+
+const customerJob = {format:'agentcollusion.text-job/v1',title:'Guide',instructions:'Write a guide',
+  context:{facts:['Local runtime']},acceptanceCriteria:['Use only supplied facts']} satisfies TextJob;
+const customerRun = await runTextJob({job:customerJob,writer:{provider:'codex'},reviewer:{provider:'claude'},maxRevisions:1});
+customerRun.fingerprint.toLowerCase();
+// @ts-expect-error Providers must be explicitly supported CLI adapters.
+await runTextJob({job:customerJob,writer:{provider:'invented'},reviewer:{provider:'claude'}});
 
 declare const recipientConfig: RuntimeConfig;
 declare const trustedFingerprint: string;

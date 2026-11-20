@@ -2,6 +2,25 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "AgentCollusion: run a text job with your agents",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/node_modules/@agentcollusion/runtime/bin/agentcollusion.mjs",
+        "run",
+        "--file",
+        "${input:jobPath}",
+        "--writer",
+        "${input:writerProvider}",
+        "--reviewer",
+        "${input:reviewerProvider}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "AgentCollusion: run the local handoff demo",
       "type": "process",
       "command": "node",
@@ -9,7 +28,9 @@
         "${workspaceFolder}/node_modules/@agentcollusion/runtime/bin/agentcollusion.mjs",
         "demo"
       ],
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": []
     },
     {
@@ -20,7 +41,9 @@
         "${workspaceFolder}/node_modules/@agentcollusion/runtime/bin/agentcollusion.mjs",
         "harness"
       ],
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": []
     },
     {
@@ -33,7 +56,9 @@
         "--dir",
         "${workspaceFolder}/.agentcollusion"
       ],
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": []
     },
     {
@@ -47,7 +72,9 @@
         "--fingerprint",
         "${input:trustedFingerprint}"
       ],
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": []
     },
     {
@@ -63,7 +90,9 @@
         "--limit",
         "100"
       ],
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": []
     }
   ],
@@ -82,6 +111,31 @@
       "id": "trustedFingerprint",
       "type": "promptString",
       "description": "Independently trusted SHA-256 key fingerprint (64 lowercase hex characters)"
+    },
+    {
+      "id": "jobPath",
+      "type": "promptString",
+      "description": "Path to your text job JSON file"
+    },
+    {
+      "id": "writerProvider",
+      "type": "pickString",
+      "description": "Authenticated CLI for the writer; model usage applies",
+      "options": [
+        "codex",
+        "claude"
+      ],
+      "default": "codex"
+    },
+    {
+      "id": "reviewerProvider",
+      "type": "pickString",
+      "description": "Authenticated CLI for the independent reviewer; model usage applies",
+      "options": [
+        "codex",
+        "claude"
+      ],
+      "default": "codex"
     }
   ]
 }

@@ -11,6 +11,8 @@ import { protectPath, writePrivateJson, withPrivateJsonOutput } from '../src/sec
 import { identifier } from '../src/errors.mjs';
 import { runDemo } from '../examples/demo.mjs';
 import { runHarness } from '../examples/harness.mjs';
+import { runTextJob } from '../src/text-job.mjs';
+import { probeProvider } from '../src/providers.mjs';
 
 const help = `AgentCollusion Runtime ${manifest.version}
 
@@ -19,6 +21,10 @@ Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
 
   agentcollusion demo [--out NEW_DIRECTORY]
   agentcollusion harness [--out NEW_DIRECTORY]
+  agentcollusion doctor --provider codex|claude [--executable NATIVE_CLI]
+  agentcollusion run --file JOB_JSON --writer codex|claude --reviewer codex|claude
+    [--out NEW_DIRECTORY] [--max-revisions 0|1|2] [--timeout-ms 10000..900000]
+    [--writer-executable NATIVE_CLI] [--reviewer-executable NATIVE_CLI]
   agentcollusion serve [--dir .agentcollusion] [--port 4318]
   agentcollusion info --config CLIENT_JSON
   agentcollusion agent add ID --config OWNER_JSON [--out NEW_CLIENT_JSON]
@@ -50,6 +56,8 @@ Requires Node.js >=22.13. The server binds only to 127.0.0.1 with pinned TLS.
 Documentation: https://agentcollusion.ai/service/runtime
 Do not share credential files or owner.json. A runtime grant controls its APIs;
 it does not sandbox your agent's external tools or processes.
+The run command uses your authenticated provider CLIs for text generation.
+Provider usage limits and charges apply. See examples/text-job.json.
 `;
 
 // Legacy CLI exports indent every event. The 32 MiB on-disk audit cap does not
@@ -108,6 +116,8 @@ async function main() {
           'limit',
           'format',
           'media-type',
+          'provider', 'executable', 'writer', 'reviewer', 'max-revisions',
+          'timeout-ms', 'writer-executable', 'reviewer-executable',
         ].includes(key) ||
         flags[key] !== undefined ||
         !args[i + 1] ||
@@ -137,6 +147,36 @@ async function main() {
     });
     console.log(`Saved ${path.resolve(file)}`);
   };
+  if (command === 'doctor' || command === 'run') {
+    const allowed=command==='doctor'?['provider','executable']:
+      ['file','writer','reviewer','out','max-revisions','timeout-ms','writer-executable','reviewer-executable'];
+    if(positionals.length!==1||Object.keys(flags).some(flag=>!allowed.includes(flag)))
+      throw new Error(`Unexpected option for ${command}. Use --help.`);
+    if(command==='doctor') {
+      print(await probeProvider({provider:need('provider'),command:flags.executable?[flags.executable]:undefined}));
+      return;
+    }
+    const integer=(name,fallback)=>{
+      if(flags[name]===undefined)return fallback;
+      if(!/^(0|[1-9]\d*)$/.test(flags[name]))throw new Error(`--${name} requires a decimal integer.`);
+      return Number(flags[name]);
+    };
+    const controller=new AbortController();
+    const stop=()=>controller.abort();
+    process.once('SIGINT',stop);process.once('SIGTERM',stop);
+    try {
+      const report=await runTextJob({job:await readBoundedJson(need('file'),30000),
+        writer:{provider:need('writer'),command:flags['writer-executable']?[flags['writer-executable']]:undefined},
+        reviewer:{provider:need('reviewer'),command:flags['reviewer-executable']?[flags['reviewer-executable']]:undefined},
+        directory:flags.out,signal:controller.signal,maxRevisions:integer('max-revisions',1),
+        timeoutMs:integer('timeout-ms',600000)});
+      print(report);
+      if(report.state!=='completed')process.exitCode=1;
+    } finally {process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop);}
+    return;
+  }
+  if(Object.keys(flags).some(flag=>['provider','executable','writer','reviewer','max-revisions','timeout-ms','writer-executable','reviewer-executable'].includes(flag)))
+    throw new Error('Provider options require doctor or run.');
   if (command === 'verify-artifact') {
     if (!action || !id || positionals.length !== 3) throw new Error('Specify the receipt file and artifact ID.');
     const allowed = ['fingerprint', 'file', 'format', 'media-type', 'audit', 'checkpoint'];

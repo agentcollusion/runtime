@@ -73,6 +73,31 @@ operation. There is no MCP implementation.
 
 ## Evidence and privacy
 
+The optional text-job runner launches the operator-selected Codex/Claude native
+CLI without a shell. Job text is sent on stdin; it cannot select an executable,
+override flags, read a runtime credential, or become a shell argument. Each
+worker receives only its own runtime token. Text-generation calls use temporary
+private working directories, bounded output, a deadline, and explicit
+tool-disabled CLI options. Unsupported flags fail closed. There is no bypass
+permission mode or automatic fallback. The CLI and any administrator-managed
+configuration remain trusted components; this is not an OS sandbox.
+
+The runner's total deadline and SIGINT/SIGTERM handling stop only child processes
+it started. On POSIX the worker receives a termination signal before forced
+group termination so it can cancel its separately grouped provider process.
+Windows cleanup targets the spawned PID and its descendants. This is lifecycle
+management for cooperating processes, not containment of hostile programs.
+
+Job context and drafts may contain private information or prompt injection. The
+selected model providers receive that content through their authenticated CLIs.
+The runner does not copy CLI transcripts, stderr or provider credentials into
+the shared evidence. `private/` retains runtime state and worker configurations;
+the entire new job directory is restricted to its creator. Exported text can
+still contain whatever the selected model generated. A review verdict is a
+model's report, not an independent security decision or proof of truth. No
+email, purchase, repository write or other external action is part of this
+text workflow.
+
 Audits contain runtime/actor/task IDs, timestamps, grants/scopes, recipients,
 deadlines, claim generations, input/result digests, artifact IDs/digests and denial
 codes. They exclude bearer/claim tokens and input/result/artifact bodies. Receipts
