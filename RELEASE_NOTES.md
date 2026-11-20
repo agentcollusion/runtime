@@ -21,6 +21,9 @@ does not isolate different owners or perform arbitrary external actions.
 This release also brings the previously local tool, recovery, A2A, trace and
 developer-harness changes below into the same distributable package.
 
+Windows storage protection allows up to 30 seconds for cold PowerShell startup
+on a busy host. The same private ACL checks must succeed before startup proceeds.
+
 Run `agentcollusion harness` or select the guardrail task in VS Code. A local
 synthetic fixture exercises a delegated handoff, scope denial, expired claim,
 uncertain call replay after restart, and saved artifact verification. The JSON

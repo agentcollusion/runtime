@@ -74,7 +74,9 @@ export function protectPath(destination, directory = false) {
       ],
       {
         input: JSON.stringify({ path: path.resolve(destination), directory }),
-        stdio: 'pipe', windowsHide: true, timeout: 10000,
+        // Cold PowerShell startup can exceed 10 seconds on a busy Windows host.
+        // Allow a bounded 30 seconds; the ACL checks still have to succeed.
+        stdio: 'pipe', windowsHide: true, timeout: 30000,
       },
       );
     } catch (error) {
